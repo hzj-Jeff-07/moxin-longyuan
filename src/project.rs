@@ -2,7 +2,7 @@ use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct Project {
     pub project: ProjectMeta,
     #[serde(rename = "component", default, skip_serializing_if = "Vec::is_empty")]
@@ -13,14 +13,14 @@ pub struct Project {
     pub code: Option<CodeMeta>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct ProjectMeta {
     pub name: String,
     pub board: String,
     pub version: String,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct Component {
     pub id: String,
     #[serde(rename = "type")]
@@ -31,13 +31,13 @@ pub struct Component {
     pub pos: Option<[i32; 2]>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct Wire {
     pub from: String,
     pub to: String,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct CodeMeta {
     pub src: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -98,5 +98,118 @@ impl Project {
 
     pub fn add_wire(&mut self, w: Wire) {
         self.wires.push(w);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::NamedTempFile;
+
+    fn full_project() -> Project {
+        Project {
+            project: ProjectMeta {
+                name: "demo".to_string(),
+                board: "arduino-uno".to_string(),
+                version: "0.1".to_string(),
+            },
+            components: vec![
+                Component {
+                    id: "led1".to_string(),
+                    kind: "led".to_string(),
+                    color: Some("red".to_string()),
+                    pos: Some([10, 20]),
+                },
+                Component {
+                    id: "btn1".to_string(),
+                    kind: "button".to_string(),
+                    color: None,
+                    pos: None,
+                },
+            ],
+            wires: vec![Wire {
+                from: "board.D13".to_string(),
+                to: "led1.anode".to_string(),
+            }],
+            code: Some(CodeMeta {
+                src: "src/main.ino".to_string(),
+                flags: vec!["-DDEBUG".to_string()],
+            }),
+        }
+    }
+
+    #[test]
+    fn new_blink_has_correct_meta() {
+        let p = Project::new_blink("blink");
+        assert_eq!(p.project.name, "blink");
+        assert_eq!(p.project.board, "arduino-uno");
+        assert_eq!(p.project.version, "0.1");
+    }
+
+    #[test]
+    fn new_blink_has_default_code() {
+        let p = Project::new_blink("blink");
+        let code = p.code.expect("new_blink should set code");
+        assert_eq!(code.src, "src/main.ino");
+        assert!(code.flags.is_empty());
+    }
+
+    #[test]
+    fn new_blink_has_no_components_or_wires() {
+        let p = Project::new_blink("blink");
+        assert!(p.components.is_empty());
+        assert!(p.wires.is_empty());
+    }
+
+    #[test]
+    fn add_component_accepts_distinct_ids() {
+        let mut p = Project::new_blink("blink");
+        let a = Component {
+            id: "led1".to_string(),
+            kind: "led".to_string(),
+            color: Some("red".to_string()),
+            pos: None,
+        };
+        let b = Component {
+            id: "led2".to_string(),
+            kind: "led".to_string(),
+            color: Some("green".to_string()),
+            pos: None,
+        };
+        assert!(p.add_component(a).is_ok());
+        assert!(p.add_component(b).is_ok());
+        assert_eq!(p.components.len(), 2);
+    }
+
+    #[test]
+    fn add_component_rejects_duplicate_id() {
+        let mut p = Project::new_blink("blink");
+        let a = Component {
+            id: "led1".to_string(),
+            kind: "led".to_string(),
+            color: None,
+            pos: None,
+        };
+        let b_same_id = Component {
+            id: "led1".to_string(),
+            kind: "led".to_string(),
+            color: Some("blue".to_string()),
+            pos: None,
+        };
+        assert!(p.add_component(a).is_ok());
+        let err = p.add_component(b_same_id);
+        assert!(err.is_err(), "second push with duplicate id must fail");
+        assert_eq!(p.components.len(), 1, "duplicate must not be appended");
+    }
+
+    #[test]
+    fn save_load_roundtrip_preserves_all_fields() {
+        let original = full_project();
+        let tmp = NamedTempFile::new().expect("create tempfile");
+        original
+            .save(tmp.path())
+            .expect("save full project to tempfile");
+        let loaded = Project::load(tmp.path()).expect("load full project");
+        assert_eq!(loaded, original, "round-trip must preserve all fields");
     }
 }
