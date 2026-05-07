@@ -18,7 +18,7 @@ use ratatui::crossterm::execute;
 use ratatui::crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
-use ratatui::layout::{Constraint, Layout, Position};
+use ratatui::layout::{Alignment, Constraint, Layout, Position};
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
@@ -178,14 +178,49 @@ pub fn run(shell: &mut crate::shell::Shell) -> Result<()> {
                 ])
                 .split(frame.area());
 
-                let lines = match shell.running.as_ref() {
-                    Some(sim) => crate::render::render_runtime_frame_styled(
-                        &shell.project,
-                        &sim.state.lock().unwrap(),
-                    ),
-                    None => crate::render::render_project_styled(&shell.project),
+                // std::sync::Mutex 不可重入,这里**单次加锁**同时取 elapsed 和 lines
+                let (title, lines) = match shell.running.as_ref() {
+                    Some(sim) => {
+                        let st = sim.state.lock().unwrap();
+                        let title = format!(
+                            "moxin · {} · t={:06.3}s",
+                            shell.project.project.board,
+                            st.started.elapsed().as_secs_f64()
+                        );
+                        let lines = crate::render::render_runtime_frame_styled(
+                            &shell.project,
+                            &st,
+                        );
+                        (title, lines)
+                    }
+                    None => {
+                        let title = format!("moxin · {}", shell.project.project.board);
+                        let lines = crate::render::render_project_styled(&shell.project);
+                        (title, lines)
+                    }
                 };
-                let block = Block::default().title("moxin").borders(Borders::ALL);
+
+                // 状态角标:error(2s 内)优先于 run / idle。
+                // last_message 在循环开头已经按 TOAST_TTL=2s 主动清掉,所以只要它还在
+                // 且 severity 是 Error,就是"最近 2s 内有错"。
+                let (status_text, status_color) = match (
+                    last_message.as_ref().map(|(_, _, s)| *s),
+                    shell.running.is_some(),
+                ) {
+                    (Some(Severity::Error), _) => ("✗ error", Color::Red),
+                    (_, true) => ("● run", Color::Green),
+                    _ => ("○ idle", Color::DarkGray),
+                };
+                let status_line = Line::from(Span::styled(
+                    status_text.to_string(),
+                    Style::default().fg(status_color),
+                ))
+                .alignment(Alignment::Right);
+
+                let block = Block::default()
+                    .title(title)
+                    .title_top(status_line)
+                    .borders(Borders::ALL);
                 frame.render_widget(Paragraph::new(lines).block(block), chunks[0]);
 
                 if let Some((msg, _, sev)) = last_message.as_ref() {
