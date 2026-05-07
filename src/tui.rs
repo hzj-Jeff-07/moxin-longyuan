@@ -1,11 +1,9 @@
-//! TUI 最小骨架(T2)。
+//! TUI 主体。
 //!
-//! 当前职责仅:进 alternate screen + raw mode、隐光标、画一个含
-//! "ESC to quit" 字样的 Block、30 FPS draw + 事件双轮询、ESC 退出、Drop 收尾。
+//! 当前职责(T2 + T4):进 alternate screen + raw mode、隐光标、按 30 FPS
+//! 重绘 frame(电路 ASCII)、ESC 退出、Drop 收尾。
 //!
-//! 不在本阶段范围:渲染电路 frame、LED 状态、输入条、toast、染色、调用
-//! `Shell::dispatch`。这些留给 T4–T7。
-//! `shell` 参数已按 spec 定下,T3 起会真正用到。
+//! 不在本阶段范围:染色(T5)、输入条(T6)、toast(T7)、调用 `Shell::dispatch`。
 
 use anyhow::{Context, Result};
 use ratatui::Terminal;
@@ -16,6 +14,7 @@ use ratatui::crossterm::execute;
 use ratatui::crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
+use ratatui::layout::{Constraint, Layout};
 use ratatui::widgets::{Block, Borders, Paragraph};
 use std::io;
 use std::time::Duration;
@@ -50,7 +49,7 @@ impl Drop for TerminalGuard {
     }
 }
 
-pub fn run(_shell: &mut crate::shell::Shell) -> Result<()> {
+pub fn run(shell: &mut crate::shell::Shell) -> Result<()> {
     let _guard = TerminalGuard::new();
     let backend = CrosstermBackend::new(io::stdout());
     let mut terminal = Terminal::new(backend).context("create ratatui terminal")?;
@@ -58,11 +57,20 @@ pub fn run(_shell: &mut crate::shell::Shell) -> Result<()> {
     loop {
         terminal
             .draw(|frame| {
-                let block = Block::default()
-                    .title("moxin · TUI scaffold")
-                    .borders(Borders::ALL);
-                let p = Paragraph::new("ESC to quit").block(block);
-                frame.render_widget(p, frame.area());
+                let chunks = Layout::vertical([Constraint::Min(0), Constraint::Length(1)])
+                    .split(frame.area());
+
+                let text = match shell.running.as_ref() {
+                    Some(sim) => crate::render::render_runtime_frame(
+                        &shell.project,
+                        &sim.state.lock().unwrap(),
+                    ),
+                    None => crate::render::render_project(&shell.project),
+                };
+                let block = Block::default().title("moxin").borders(Borders::ALL);
+                let p = Paragraph::new(text).block(block);
+                frame.render_widget(p, chunks[0]);
+                // chunks[1] 留空,T6 接管
             })
             .context("draw frame")?;
 
@@ -76,3 +84,4 @@ pub fn run(_shell: &mut crate::shell::Shell) -> Result<()> {
     }
     Ok(())
 }
+

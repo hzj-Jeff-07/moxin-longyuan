@@ -109,8 +109,8 @@ fn repl_piped(shell: &mut Shell) -> Result<()> {
 
 pub struct Shell {
     root: PathBuf,
-    project: Project,
-    running: Option<RunningSim>,
+    pub project: Project,
+    pub running: Option<RunningSim>,
 }
 
 impl Shell {
