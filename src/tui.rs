@@ -60,15 +60,15 @@ pub fn run(shell: &mut crate::shell::Shell) -> Result<()> {
                 let chunks = Layout::vertical([Constraint::Min(0), Constraint::Length(1)])
                     .split(frame.area());
 
-                let text = match shell.running.as_ref() {
-                    Some(sim) => crate::render::render_runtime_frame(
+                let lines = match shell.running.as_ref() {
+                    Some(sim) => crate::render::render_runtime_frame_styled(
                         &shell.project,
                         &sim.state.lock().unwrap(),
                     ),
-                    None => crate::render::render_project(&shell.project),
+                    None => crate::render::render_project_styled(&shell.project),
                 };
                 let block = Block::default().title("moxin").borders(Borders::ALL);
-                let p = Paragraph::new(text).block(block);
+                let p = Paragraph::new(lines).block(block);
                 frame.render_widget(p, chunks[0]);
                 // chunks[1] 留空,T6 接管
             })
