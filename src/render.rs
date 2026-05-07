@@ -231,19 +231,15 @@ fn led_color(name: &str) -> Color {
     }
 }
 
-pub fn render_runtime_frame_styled(project: &Project, state: &RunState) -> Vec<Line<'static>> {
-    let elapsed = state.started.elapsed().as_secs_f64();
-    let title = format!(" moxin · {} · t={:06.3}s ", project.project.board, elapsed);
+pub fn render_runtime_frame_styled(project: &Project, _state: &RunState) -> Vec<Line<'static>> {
+    // 只产生**内容行**:外面的 ratatui Block 是唯一的框,这里不画 ┌─┐│└─┘
     let mut lines: Vec<Line<'static>> = Vec::new();
-    lines.push(Line::from(header_line(&title)));
-    lines.push(Line::from(border_line()));
 
     let leds_on_d13 = leds_connected_to_pin(project, 13);
     if !leds_on_d13.is_empty() {
         let led = leds_on_d13[0];
         let label_color = led.color.as_deref().unwrap_or("red");
-        // label_word 含尾空格,等同 plain 版 format_led 的 "{label} " 之后再接 marker
-        let (label_word, marker, marker_style) = match state.d13 {
+        let (label_word, marker, marker_style) = match _state.d13 {
             LedLevel::On => (
                 format!("{} ON ", label_color),
                 "#",
@@ -255,22 +251,25 @@ pub fn render_runtime_frame_styled(project: &Project, state: &RunState) -> Vec<L
                 Style::default().fg(Color::DarkGray),
             ),
         };
-        // 视觉布局严格复刻 content_line(plain LED 行):│ + " " + 内容 + 填充 + │
         let prefix = format!(" PIN13 ───●─── [LED:{} {}", led.id, label_word);
-        let suffix = "]";
-        let inner_w = prefix.chars().count() + 1 /* marker */ + suffix.chars().count();
-        let pad = FRAME_INNER_W.saturating_sub(inner_w);
         lines.push(Line::from(vec![
-            Span::raw("│"),
             Span::raw(prefix),
             Span::styled(marker.to_string(), marker_style),
-            Span::raw(suffix.to_string()),
-            Span::raw(" ".repeat(pad)),
-            Span::raw("│"),
+            Span::raw("]".to_string()),
         ]));
     } else {
-        lines.push(Line::from(content_line("PIN13 ───●─── (no LED wired)")));
+        lines.push(Line::from(" PIN13 ───●─── (no LED wired)".to_string()));
     }
+
+    // 板载 L LED:Arduino UNO 板上跟 D13 同一根线的内置灯,跟着 d13 一起亮灭
+    let l_style = match _state.d13 {
+        LedLevel::On => Style::default().fg(Color::Rgb(40, 220, 80)),
+        LedLevel::Off => Style::default().fg(Color::DarkGray),
+    };
+    lines.push(Line::from(vec![
+        Span::raw("  L (built-in)  ".to_string()),
+        Span::styled("●".to_string(), l_style),
+    ]));
 
     let buttons: Vec<&Component> = project
         .components
@@ -279,21 +278,20 @@ pub fn render_runtime_frame_styled(project: &Project, state: &RunState) -> Vec<L
         .collect();
     if let Some(btn) = buttons.first() {
         if let Some((pin_n, _)) = find_button_pin(project, &btn.id) {
-            lines.push(Line::from(content_line(&format!("PIN{:02} ───┐", pin_n))));
-            lines.push(Line::from(content_line(&format!(
-                "          ├── [Button:{} UP]",
+            lines.push(Line::from(format!(" PIN{:02} ───┐", pin_n)));
+            lines.push(Line::from(format!(
+                "           ├── [Button:{} UP]",
                 btn.id
-            ))));
-            lines.push(Line::from(content_line("GND  ────┘")));
+            )));
+            lines.push(Line::from(" GND  ────┘".to_string()));
         } else {
-            lines.push(Line::from(content_line(&format!(
-                "       [Button:{} UP (unwired)]",
+            lines.push(Line::from(format!(
+                "        [Button:{} UP (unwired)]",
                 btn.id
-            ))));
+            )));
         }
     }
 
-    lines.push(Line::from(footer_line()));
     lines
 }
 
@@ -346,5 +344,10 @@ pub fn render_project_styled(project: &Project) -> Vec<Line<'static>> {
             wires
         }
     )));
+    // 板载 L LED:idle 路径没有 RunState,d13 不可读 → 常态熄灭(灰色 ○)
+    lines.push(Line::from(vec![
+        Span::raw("  L (built-in)  ".to_string()),
+        Span::styled("○".to_string(), Style::default().fg(Color::DarkGray)),
+    ]));
     lines
 }
