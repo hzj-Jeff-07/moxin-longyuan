@@ -65,7 +65,7 @@ fn parse_board_terminal(t: &str) -> Result<PinRef> {
     if up == "5V" || up == "VCC" {
         return Ok(PinRef::Board5V);
     }
-    // PIN13 / D13 / 13
+    // 形如 PIN13 / D13 / 13
     let num_part: String = up
         .trim_start_matches("PIN")
         .trim_start_matches('D')

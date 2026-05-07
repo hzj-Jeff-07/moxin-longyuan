@@ -91,7 +91,7 @@ fn repl_piped(shell: &mut Shell) -> Result<()> {
         if trimmed.is_empty() {
             continue;
         }
-        // echo command for transcript readability
+        // 把命令回显一遍,便于从 transcript 中看清
         writeln!(out, "{}", trimmed)?;
         out.flush()?;
         if trimmed == "exit" || trimmed == "quit" {
@@ -146,9 +146,9 @@ impl Shell {
         }
     }
 
-    /// add <type> [args...] --id <id>
-    /// add led red --id led1
-    /// add button --id btn1
+    /// 添加元件: add <type> [args...] --id <id>
+    /// 例: add led red --id led1
+    /// 例: add button --id btn1
     fn cmd_add(&mut self, args: &[&str]) -> Result<()> {
         if args.is_empty() {
             bail!("usage: add <type> [color] --id <id>");
@@ -204,7 +204,7 @@ impl Shell {
         Ok(())
     }
 
-    /// wire <from> -> <to>
+    /// 连线: wire <from> -> <to>
     fn cmd_wire(&mut self, rest: &str) -> Result<()> {
         let parts: Vec<&str> = rest.split("->").map(|s| s.trim()).collect();
         if parts.len() != 2 || parts[0].is_empty() || parts[1].is_empty() {

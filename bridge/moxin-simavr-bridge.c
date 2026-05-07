@@ -2,7 +2,7 @@
  * moxin-simavr-bridge.c — moxin demo 的 simavr 子进程桥接
  *
  * 启动:  bridge <hexfile> [mcu] [freq_hz]
- * stdout: JSON Lines
+ * 标准输出: 每行一条 JSON (JSON Lines 格式)
  *   {"event":"ready","mcu":"atmega328p","freq":16000000}
  *   {"event":"pin","t_us":NUM,"port":"B","bit":5,"value":0|1}
  *   {"event":"exit","state":N}
@@ -57,7 +57,7 @@ int main(int argc, char **argv) {
     avr->frequency = freq;
     g_avr = avr;
 
-    /* load .hex file into flash via simavr's public API */
+    /* 通过 simavr 的公开 API 把 .hex 文件加载进 flash */
     uint32_t fwsize = 0, fwstart = 0;
     uint8_t *buf = read_ihex_file(hexpath, &fwsize, &fwstart);
     if (!buf || fwsize == 0) {
@@ -73,7 +73,7 @@ int main(int argc, char **argv) {
     avr->codeend = fwstart + fwsize - 1;
     free(buf);
 
-    /* hook PORTB bit 5 (Arduino D13 / built-in LED pin) */
+    /* 挂钩 PORTB 第 5 位 (即 Arduino D13 / 板载 LED 引脚) */
     avr_irq_t *irq_b5 = avr_io_getirq(avr, AVR_IOCTL_IOPORT_GETIRQ('B'), 5);
     if (!irq_b5) {
         fprintf(stderr, "failed to get IRQ for PORTB bit 5\n");
@@ -90,7 +90,7 @@ int main(int argc, char **argv) {
     }
 
     int state = cpu_Running;
-    /* throttle simavr to wall-clock so the LED blinks at human-visible rate */
+    /* 把 simavr 节流到墙钟时间,LED 才会按人眼可见的速率闪烁 */
     struct timespec t0;
     clock_gettime(CLOCK_MONOTONIC, &t0);
     uint64_t t0_us = (uint64_t)t0.tv_sec * 1000000ULL +
