@@ -5,6 +5,7 @@ mod cmd_run;
 mod project;
 mod render;
 mod shell;
+mod tui;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -21,7 +22,11 @@ enum Cmd {
     /// 新建项目
     New { name: String },
     /// 进入交互式 shell
-    Shell,
+    Shell {
+        /// 强制退回旧 rustyline 提示符,不进 TUI
+        #[arg(long = "no-tui")]
+        no_tui: bool,
+    },
     /// 编译项目(arduino-cli)
     Build,
     /// 启动模拟器,跑到回车键按下退出
@@ -32,14 +37,17 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
         Cmd::New { name } => cmd_new::cmd_new(&name),
-        Cmd::Shell => {
+        Cmd::Shell { no_tui } => {
             let cwd = std::env::current_dir()?;
-            shell::cmd_shell(&cwd)
+            shell::cmd_shell(&cwd, no_tui)
         }
         Cmd::Build => {
             let cwd = std::env::current_dir()?;
             let root = project::Project::find_project_root(&cwd)?;
-            let _hex = cmd_build::cmd_build(&root)?;
+            let (_hex, msg) = cmd_build::cmd_build(&root)?;
+            if !msg.is_empty() {
+                println!("{}", msg);
+            }
             Ok(())
         }
         Cmd::Run => {
@@ -50,6 +58,7 @@ fn main() -> Result<()> {
                 .join("build")
                 .join(format!("{}.hex", project.project.name));
             let sim = cmd_run::cmd_run(&root, &hex)?;
+            println!("✓ simulator started (simavr)");
             println!("(press ENTER to stop)");
             let mut buf = String::new();
             let _ = std::io::stdin().read_line(&mut buf);

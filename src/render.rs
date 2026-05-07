@@ -1,6 +1,8 @@
 use crate::board::PinRef;
 use crate::cmd_run::{LedLevel, RunState};
 use crate::project::{Component, Project};
+use ratatui::style::{Color, Style};
+use ratatui::text::{Line, Span};
 
 const FRAME_INNER_W: usize = 48; // 内容区宽度(不含两侧 │)
 
@@ -209,4 +211,143 @@ pub fn render_project(project: &Project) -> String {
         }
     ));
     s
+}
+
+// ---- T5: TUI 用的 styled 渲染(返回 Vec<Line<'static>>)----
+//
+// 旧 API(render_runtime_frame / render_project)继续给 piped/--no-tui 用,纯字符串。
+// styled 版仅在 LED 状态字符上染色,其它行 1:1 复用 plain 版的字符布局,
+// 保证视觉宽度跟 plain 版一致(便于人眼对齐)。
+
+/// 把 LED 颜色名字符串映射到 Color。未知颜色 fallback 到 white。
+fn led_color(name: &str) -> Color {
+    match name {
+        "red" => Color::Rgb(255, 40, 40),
+        "green" => Color::Rgb(40, 220, 80),
+        "blue" => Color::Rgb(60, 120, 255),
+        "yellow" => Color::Rgb(255, 200, 40),
+        "white" => Color::Rgb(240, 240, 240),
+        _ => Color::Rgb(240, 240, 240),
+    }
+}
+
+pub fn render_runtime_frame_styled(project: &Project, _state: &RunState) -> Vec<Line<'static>> {
+    // 只产生**内容行**:外面的 ratatui Block 是唯一的框,这里不画 ┌─┐│└─┘
+    let mut lines: Vec<Line<'static>> = Vec::new();
+
+    let leds_on_d13 = leds_connected_to_pin(project, 13);
+    if !leds_on_d13.is_empty() {
+        let led = leds_on_d13[0];
+        let label_color = led.color.as_deref().unwrap_or("red");
+        let (label_word, marker, marker_style) = match _state.d13 {
+            LedLevel::On => (
+                format!("{} ON ", label_color),
+                "#",
+                Style::default().fg(led_color(label_color)),
+            ),
+            LedLevel::Off => (
+                format!("{} OFF ", label_color),
+                ".",
+                Style::default().fg(Color::DarkGray),
+            ),
+        };
+        let prefix = format!(" PIN13 ───●─── [LED:{} {}", led.id, label_word);
+        lines.push(Line::from(vec![
+            Span::raw(prefix),
+            Span::styled(marker.to_string(), marker_style),
+            Span::raw("]".to_string()),
+        ]));
+    } else {
+        lines.push(Line::from(" PIN13 ───●─── (no LED wired)".to_string()));
+    }
+
+    // 板载 L LED:Arduino UNO 板上跟 D13 同一根线的内置灯,跟着 d13 一起亮灭
+    let l_style = match _state.d13 {
+        LedLevel::On => Style::default().fg(Color::Rgb(40, 220, 80)),
+        LedLevel::Off => Style::default().fg(Color::DarkGray),
+    };
+    lines.push(Line::from(vec![
+        Span::raw("  L (built-in)  ".to_string()),
+        Span::styled("●".to_string(), l_style),
+    ]));
+
+    let buttons: Vec<&Component> = project
+        .components
+        .iter()
+        .filter(|c| c.kind == "button")
+        .collect();
+    if let Some(btn) = buttons.first() {
+        if let Some((pin_n, _)) = find_button_pin(project, &btn.id) {
+            lines.push(Line::from(format!(" PIN{:02} ───┐", pin_n)));
+            lines.push(Line::from(format!(
+                "           ├── [Button:{} UP]",
+                btn.id
+            )));
+            lines.push(Line::from(" GND  ────┘".to_string()));
+        } else {
+            lines.push(Line::from(format!(
+                "        [Button:{} UP (unwired)]",
+                btn.id
+            )));
+        }
+    }
+
+    lines
+}
+
+pub fn render_project_styled(project: &Project) -> Vec<Line<'static>> {
+    let mut lines: Vec<Line<'static>> = Vec::new();
+    lines.push(Line::from(format!(
+        "[project] name={}, board={}",
+        project.project.name, project.project.board
+    )));
+    let comps = project
+        .components
+        .iter()
+        .map(|c| {
+            let extra = c
+                .color
+                .as_deref()
+                .map(|x| format!("{} ", x))
+                .unwrap_or_default();
+            format!("{}({}{})", c.id, extra, c.kind)
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    lines.push(Line::from(format!(
+        "[components] {}",
+        if comps.is_empty() {
+            "(none)".to_string()
+        } else {
+            comps
+        }
+    )));
+    let wires = project
+        .wires
+        .iter()
+        .map(|w| {
+            let f = PinRef::parse(&w.from)
+                .map(|p| p.render())
+                .unwrap_or_else(|_| w.from.clone());
+            let t = PinRef::parse(&w.to)
+                .map(|p| p.render())
+                .unwrap_or_else(|_| w.to.clone());
+            format!("{} -> {}", f, t)
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    lines.push(Line::from(format!(
+        "[wires] {}",
+        if wires.is_empty() {
+            "(none)".to_string()
+        } else {
+            wires
+        }
+    )));
+    // 板载 L LED:idle 路径没有 RunState,d13 不可读 → 常态熄灭(灰色 ○)
+    lines.push(Line::from(vec![
+        Span::raw("  L (built-in)  ".to_string()),
+        Span::styled("○".to_string(), Style::default().fg(Color::DarkGray)),
+    ]));
+    lines
 }

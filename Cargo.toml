@@ -10,6 +10,10 @@ toml = "0.8"
 serde_json = "1"
 anyhow = "1"
 rustyline = "14"
+ratatui = "0.30"
+
+[dev-dependencies]
+tempfile = "3"
 
 [profile.release]
 opt-level = 3

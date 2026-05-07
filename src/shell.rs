@@ -9,7 +9,7 @@ use std::io::{self, BufRead, IsTerminal, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-pub fn cmd_shell(start_dir: &Path) -> Result<()> {
+pub fn cmd_shell(start_dir: &Path, no_tui: bool) -> Result<()> {
     let root = Project::find_project_root(start_dir)?;
     let project = Project::load(&root.join("moxin.toml"))?;
 
@@ -31,7 +31,10 @@ pub fn cmd_shell(start_dir: &Path) -> Result<()> {
         running: None,
     };
 
-    if io::stdin().is_terminal() {
+    let is_tty = io::stdin().is_terminal();
+    if is_tty && !no_tui {
+        crate::tui::run(&mut shell)?;
+    } else if is_tty {
         repl_interactive(&mut shell)?;
     } else {
         repl_piped(&mut shell)?;
@@ -65,8 +68,10 @@ fn repl_interactive(shell: &mut Shell) -> Result<()> {
         if trimmed == "exit" || trimmed == "quit" {
             break;
         }
-        if let Err(e) = shell.dispatch(trimmed) {
-            eprintln!("error: {}", e);
+        match shell.dispatch(trimmed) {
+            Ok(msg) if !msg.is_empty() => println!("{}", msg),
+            Ok(_) => {}
+            Err(e) => eprintln!("error: {}", e),
         }
     }
     Ok(())
@@ -97,21 +102,34 @@ fn repl_piped(shell: &mut Shell) -> Result<()> {
         if trimmed == "exit" || trimmed == "quit" {
             break;
         }
-        if let Err(e) = shell.dispatch(&trimmed) {
-            writeln!(out, "error: {}", e)?;
+        match shell.dispatch(&trimmed) {
+            Ok(msg) if !msg.is_empty() => writeln!(out, "{}", msg)?,
+            Ok(_) => {}
+            Err(e) => writeln!(out, "error: {}", e)?,
         }
+        out.flush()?;
     }
     Ok(())
 }
 
-struct Shell {
+pub struct Shell {
     root: PathBuf,
-    project: Project,
-    running: Option<RunningSim>,
+    pub project: Project,
+    pub running: Option<RunningSim>,
+}
+
+/// Panic 安全兜底:正常退出路径已经在 `cmd_shell` 末尾 `sim.stop()` 早释放,
+/// Drop 只在 unwind / 异常返回时兜底,避免 sim 子进程变孤儿。
+impl Drop for Shell {
+    fn drop(&mut self) {
+        if let Some(sim) = self.running.take() {
+            sim.stop();
+        }
+    }
 }
 
 impl Shell {
-    fn dispatch(&mut self, line: &str) -> Result<()> {
+    pub fn dispatch(&mut self, line: &str) -> Result<String> {
         // 特殊处理 `wire <from> -> <to>`,因为参数里有 `->`
         if let Some(rest) = line.strip_prefix("wire") {
             return self.cmd_wire(rest.trim());
@@ -128,20 +146,14 @@ impl Shell {
             "run" => self.cmd_run_sim(),
             "stop" => self.cmd_stop(),
             "sleep" => self.cmd_sleep(&rest),
-            "help" | "?" => {
-                print_help();
-                Ok(())
-            }
+            "help" | "?" => Ok(help_text()),
             _ => bail!("unknown command: {} (try `help`)", head),
         }
     }
 
-    fn cmd_board(&self, rest: &[&str]) -> Result<()> {
+    fn cmd_board(&self, rest: &[&str]) -> Result<String> {
         match rest.first().copied() {
-            Some("info") | None => {
-                println!("{}", board_info());
-                Ok(())
-            }
+            Some("info") | None => Ok(board_info().to_string()),
             Some(other) => bail!("unknown board subcommand: {}", other),
         }
     }
@@ -149,7 +161,7 @@ impl Shell {
     /// 添加元件: add <type> [args...] --id <id>
     /// 例: add led red --id led1
     /// 例: add button --id btn1
-    fn cmd_add(&mut self, args: &[&str]) -> Result<()> {
+    fn cmd_add(&mut self, args: &[&str]) -> Result<String> {
         if args.is_empty() {
             bail!("usage: add <type> [color] --id <id>");
         }
@@ -200,12 +212,11 @@ impl Shell {
 
         self.project.add_component(comp)?;
         self.save_project()?;
-        println!("✓ added {}", display);
-        Ok(())
+        Ok(format!("✓ added {}", display))
     }
 
     /// 连线: wire <from> -> <to>
-    fn cmd_wire(&mut self, rest: &str) -> Result<()> {
+    fn cmd_wire(&mut self, rest: &str) -> Result<String> {
         let parts: Vec<&str> = rest.split("->").map(|s| s.trim()).collect();
         if parts.len() != 2 || parts[0].is_empty() || parts[1].is_empty() {
             bail!("usage: wire <from> -> <to>");
@@ -230,36 +241,28 @@ impl Shell {
             to: to_canon.clone(),
         });
         self.save_project()?;
-        println!(
-            "✓ wired {} -> {}",
-            from_canon, to_canon
-        );
-        Ok(())
+        Ok(format!("✓ wired {} -> {}", from_canon, to_canon))
     }
 
-    fn cmd_show(&self, args: &[&str]) -> Result<()> {
+    fn cmd_show(&self, args: &[&str]) -> Result<String> {
         match args.first().copied() {
-            Some("project") => {
-                println!("{}", render_project(&self.project));
-                Ok(())
-            }
+            Some("project") => Ok(render_project(&self.project)),
             None => {
                 if let Some(sim) = self.running.as_ref() {
                     let st = sim.state.lock().unwrap();
-                    println!("{}", render_runtime_frame(&self.project, &st));
+                    Ok(render_runtime_frame(&self.project, &st))
                 } else {
-                    println!(
+                    Ok(format!(
                         "{}\n(simulator not running — try `run`)",
                         render_project(&self.project)
-                    );
+                    ))
                 }
-                Ok(())
             }
             Some(other) => bail!("unknown show subcommand: {}", other),
         }
     }
 
-    fn cmd_edit(&self) -> Result<()> {
+    fn cmd_edit(&self) -> Result<String> {
         let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vi".to_string());
         let target = self.root.join(
             self.project
@@ -275,15 +278,15 @@ impl Shell {
         if !status.success() {
             bail!("editor exited non-zero");
         }
-        Ok(())
+        Ok(String::new())
     }
 
-    fn cmd_build(&self) -> Result<()> {
-        cmd_build(&self.root)?;
-        Ok(())
+    fn cmd_build(&self) -> Result<String> {
+        let (_hex, msg) = cmd_build(&self.root)?;
+        Ok(msg)
     }
 
-    fn cmd_run_sim(&mut self) -> Result<()> {
+    fn cmd_run_sim(&mut self) -> Result<String> {
         if let Some(s) = &mut self.running {
             if s.is_alive() {
                 bail!("simulator already running (use `stop` first)");
@@ -298,21 +301,20 @@ impl Shell {
         }
         let sim = cmd_run(&self.root, &hex)?;
         self.running = Some(sim);
-        Ok(())
+        Ok("✓ simulator started (simavr)".to_string())
     }
 
-    fn cmd_stop(&mut self) -> Result<()> {
+    fn cmd_stop(&mut self) -> Result<String> {
         if let Some(sim) = self.running.take() {
             sim.stop();
-            println!("✓ simulator stopped");
+            Ok("✓ simulator stopped".to_string())
         } else {
-            println!("(no simulator running)");
+            Ok("(no simulator running)".to_string())
         }
-        Ok(())
     }
 
     /// `sleep <ms>` — 仅用于自动化测试,在剧本里观察 LED 翻转
-    fn cmd_sleep(&self, args: &[&str]) -> Result<()> {
+    fn cmd_sleep(&self, args: &[&str]) -> Result<String> {
         let ms: u64 = args
             .first()
             .copied()
@@ -320,7 +322,7 @@ impl Shell {
             .parse()
             .map_err(|_| anyhow!("usage: sleep <milliseconds>"))?;
         std::thread::sleep(std::time::Duration::from_millis(ms));
-        Ok(())
+        Ok(String::new())
     }
 
     fn save_project(&self) -> Result<()> {
@@ -328,8 +330,8 @@ impl Shell {
     }
 }
 
-fn print_help() {
-    println!(
+fn help_text() -> String {
+    String::from(
         "moxin shell commands:
   board info                       show board details
   add <type> [color] --id <id>     add component (led / button)
@@ -340,6 +342,6 @@ fn print_help() {
   build                            compile via arduino-cli
   run                              start simavr simulator
   stop                             stop simulator
-  exit | quit                      leave shell"
-    );
+  exit | quit                      leave shell",
+    )
 }
