@@ -118,6 +118,16 @@ pub struct Shell {
     pub running: Option<RunningSim>,
 }
 
+/// Panic 安全兜底:正常退出路径已经在 `cmd_shell` 末尾 `sim.stop()` 早释放,
+/// Drop 只在 unwind / 异常返回时兜底,避免 sim 子进程变孤儿。
+impl Drop for Shell {
+    fn drop(&mut self) {
+        if let Some(sim) = self.running.take() {
+            sim.stop();
+        }
+    }
+}
+
 impl Shell {
     pub fn dispatch(&mut self, line: &str) -> Result<String> {
         // 特殊处理 `wire <from> -> <to>`,因为参数里有 `->`
@@ -272,10 +282,8 @@ impl Shell {
     }
 
     fn cmd_build(&self) -> Result<String> {
-        // 注:cmd_build::cmd_build 内部仍 println 进度信息(那文件不在本 sprint
-        // 范围),piped 模式照常出来,TUI 模式下会污染屏幕——已知限制。
-        cmd_build(&self.root)?;
-        Ok(String::new())
+        let (_hex, msg) = cmd_build(&self.root)?;
+        Ok(msg)
     }
 
     fn cmd_run_sim(&mut self) -> Result<String> {
@@ -293,7 +301,7 @@ impl Shell {
         }
         let sim = cmd_run(&self.root, &hex)?;
         self.running = Some(sim);
-        Ok(String::new())
+        Ok("✓ simulator started (simavr)".to_string())
     }
 
     fn cmd_stop(&mut self) -> Result<String> {
