@@ -22,7 +22,11 @@ enum Cmd {
     /// 新建项目
     New { name: String },
     /// 进入交互式 shell
-    Shell,
+    Shell {
+        /// 强制退回旧 rustyline 提示符,不进 TUI
+        #[arg(long = "no-tui")]
+        no_tui: bool,
+    },
     /// 编译项目(arduino-cli)
     Build,
     /// 启动模拟器,跑到回车键按下退出
@@ -33,9 +37,9 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
         Cmd::New { name } => cmd_new::cmd_new(&name),
-        Cmd::Shell => {
+        Cmd::Shell { no_tui } => {
             let cwd = std::env::current_dir()?;
-            shell::cmd_shell(&cwd)
+            shell::cmd_shell(&cwd, no_tui)
         }
         Cmd::Build => {
             let cwd = std::env::current_dir()?;

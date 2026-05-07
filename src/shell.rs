@@ -9,7 +9,7 @@ use std::io::{self, BufRead, IsTerminal, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-pub fn cmd_shell(start_dir: &Path) -> Result<()> {
+pub fn cmd_shell(start_dir: &Path, no_tui: bool) -> Result<()> {
     let root = Project::find_project_root(start_dir)?;
     let project = Project::load(&root.join("moxin.toml"))?;
 
@@ -31,7 +31,10 @@ pub fn cmd_shell(start_dir: &Path) -> Result<()> {
         running: None,
     };
 
-    if io::stdin().is_terminal() {
+    let is_tty = io::stdin().is_terminal();
+    if is_tty && !no_tui {
+        crate::tui::run(&mut shell)?;
+    } else if is_tty {
         repl_interactive(&mut shell)?;
     } else {
         repl_piped(&mut shell)?;
