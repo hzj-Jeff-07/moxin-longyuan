@@ -345,3 +345,54 @@ fn help_text() -> String {
   exit | quit                      leave shell",
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    /// 构造一个**离线** Shell:tempdir 里建好 moxin.toml,running=None,
+    /// 不开 simavr / arduino-cli,只测纯 dispatch 行为
+    fn make_shell(tmp: &TempDir) -> Shell {
+        let project = Project::new_blink("test");
+        project
+            .save(&tmp.path().join("moxin.toml"))
+            .expect("save project");
+        Shell {
+            root: tmp.path().to_path_buf(),
+            project,
+            running: None,
+        }
+    }
+
+    #[test]
+    fn test_dispatch_add_led_returns_success() {
+        let tmp = TempDir::new().expect("tempdir");
+        let mut shell = make_shell(&tmp);
+        let msg = shell
+            .dispatch("add led red --id led1")
+            .expect("add led should succeed");
+        assert!(msg.contains("✓ added led1"), "got: {}", msg);
+    }
+
+    #[test]
+    fn test_dispatch_add_without_id_returns_error() {
+        let tmp = TempDir::new().expect("tempdir");
+        let mut shell = make_shell(&tmp);
+        let res = shell.dispatch("add led");
+        assert!(res.is_err(), "missing --id should error, got: {:?}", res);
+    }
+
+    #[test]
+    fn test_dispatch_wire_after_add_returns_success() {
+        let tmp = TempDir::new().expect("tempdir");
+        let mut shell = make_shell(&tmp);
+        shell
+            .dispatch("add led red --id led1")
+            .expect("add led prerequisite");
+        let msg = shell
+            .dispatch("wire pin13 -> led1.a")
+            .expect("wire should succeed");
+        assert!(msg.contains("✓ wired"), "got: {}", msg);
+    }
+}

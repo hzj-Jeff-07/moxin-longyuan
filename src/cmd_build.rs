@@ -152,3 +152,23 @@ fn dirs_home() -> PathBuf {
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("."))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+    use tempfile::NamedTempFile;
+
+    #[test]
+    fn test_ihex_program_size_counts_data_records() {
+        // 两条 data record (type=00),16B + 12B;一条 EOF (type=01) 应被忽略。
+        // checksum 字段实现里没校验,这里随便填。
+        let hex = ":10010000214601360121470136007EFE09D2190140\n\
+                   :0C0010006162636465666768696071624A\n\
+                   :00000001FF\n";
+        let mut tmp = NamedTempFile::new().expect("create tempfile");
+        tmp.write_all(hex.as_bytes()).expect("write hex bytes");
+        let n = ihex_program_size(tmp.path()).expect("parse hex");
+        assert_eq!(n, 16 + 12);
+    }
+}
