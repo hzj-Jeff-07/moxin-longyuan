@@ -125,8 +125,6 @@ pub fn cmd_run(root: &Path, hex: &Path) -> Result<RunningSim> {
     let log_path = bridge_log_path();
     let stderr_handle = thread::spawn(move || stderr_reader_loop(stderr, log_path));
 
-    println!("✓ simulator started (simavr)");
-
     Ok(RunningSim {
         state,
         child,

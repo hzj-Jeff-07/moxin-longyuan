@@ -5,7 +5,7 @@ use std::process::Command;
 
 const FQBN: &str = "arduino:avr:uno";
 
-pub fn cmd_build(root: &Path) -> Result<PathBuf> {
+pub fn cmd_build(root: &Path) -> Result<(PathBuf, String)> {
     let project_path = root.join("moxin.toml");
     let project = Project::load(&project_path)?;
 
@@ -35,17 +35,19 @@ pub fn cmd_build(root: &Path) -> Result<PathBuf> {
         .context("copy main.ino → build/sketch/sketch.ino")?;
 
     let out_dir = sketch_dir.join("out");
-    let status = Command::new("arduino-cli")
+    let out = Command::new("arduino-cli")
         .arg("compile")
         .arg("--fqbn")
         .arg(FQBN)
         .arg("--output-dir")
         .arg(&out_dir)
         .arg(&sketch_dir)
-        .status()
+        .output()
         .context("invoke arduino-cli compile")?;
-    if !status.success() {
-        bail!("arduino-cli compile failed");
+    if !out.status.success() {
+        // 把 arduino-cli stderr 也带回来给上层显示,便于诊断
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        bail!("arduino-cli compile failed:\n{}", stderr.trim_end());
     }
 
     let produced_hex = out_dir.join("sketch.ino.hex");
@@ -62,11 +64,22 @@ pub fn cmd_build(root: &Path) -> Result<PathBuf> {
         std::fs::metadata(&target_hex).map(|m| m.len()).unwrap_or(0)
     });
 
-    println!(
+    // 累积返回字符串:arduino-cli stdout 的实质行 + ✓ 摘要
+    let mut msg = String::new();
+    let stdout_text = String::from_utf8_lossy(&out.stdout);
+    for line in stdout_text.lines() {
+        let trimmed = line.trim_end();
+        if !trimmed.is_empty() {
+            msg.push_str(trimmed);
+            msg.push('\n');
+        }
+    }
+    msg.push_str(&format!(
         "✓ arduino-cli compile OK → build/{} ({} bytes)",
         target_name, prog_bytes
-    );
-    Ok(target_hex)
+    ));
+
+    Ok((target_hex, msg))
 }
 
 /// 解析 Intel HEX 文件,把所有 data record (type 00) 的字节数加起来

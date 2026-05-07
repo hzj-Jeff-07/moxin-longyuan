@@ -44,7 +44,10 @@ fn main() -> Result<()> {
         Cmd::Build => {
             let cwd = std::env::current_dir()?;
             let root = project::Project::find_project_root(&cwd)?;
-            let _hex = cmd_build::cmd_build(&root)?;
+            let (_hex, msg) = cmd_build::cmd_build(&root)?;
+            if !msg.is_empty() {
+                println!("{}", msg);
+            }
             Ok(())
         }
         Cmd::Run => {
@@ -55,6 +58,7 @@ fn main() -> Result<()> {
                 .join("build")
                 .join(format!("{}.hex", project.project.name));
             let sim = cmd_run::cmd_run(&root, &hex)?;
+            println!("✓ simulator started (simavr)");
             println!("(press ENTER to stop)");
             let mut buf = String::new();
             let _ = std::io::stdin().read_line(&mut buf);
