@@ -63,6 +63,7 @@ pub struct RunningSim {
     pub state: Arc<Mutex<RunState>>,
     child: Child,
     reader_handle: Option<thread::JoinHandle<()>>,
+    stderr_reader_handle: Option<thread::JoinHandle<()>>,
 }
 
 impl RunningSim {
@@ -70,6 +71,9 @@ impl RunningSim {
         let _ = self.child.kill();
         let _ = self.child.wait();
         if let Some(h) = self.reader_handle.take() {
+            let _ = h.join();
+        }
+        if let Some(h) = self.stderr_reader_handle.take() {
             let _ = h.join();
         }
     }
@@ -100,7 +104,7 @@ pub fn cmd_run(root: &Path, hex: &Path) -> Result<RunningSim> {
         .arg("16000000")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::inherit())
+        .stderr(Stdio::piped())
         .current_dir(root)
         .spawn()
         .with_context(|| format!("spawn {}", bridge.display()))?;
@@ -109,10 +113,17 @@ pub fn cmd_run(root: &Path, hex: &Path) -> Result<RunningSim> {
         .stdout
         .take()
         .ok_or_else(|| anyhow!("bridge stdout not piped"))?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| anyhow!("bridge stderr not piped"))?;
 
     let state = Arc::new(Mutex::new(RunState::default()));
     let state_bg = Arc::clone(&state);
     let handle = thread::spawn(move || reader_loop(stdout, state_bg));
+
+    let log_path = bridge_log_path();
+    let stderr_handle = thread::spawn(move || stderr_reader_loop(stderr, log_path));
 
     println!("✓ simulator started (simavr)");
 
@@ -120,6 +131,7 @@ pub fn cmd_run(root: &Path, hex: &Path) -> Result<RunningSim> {
         state,
         child,
         reader_handle: Some(handle),
+        stderr_reader_handle: Some(stderr_handle),
     })
 }
 
@@ -201,4 +213,41 @@ fn find_bridge() -> Result<PathBuf> {
     // 开发默认路径
     let home = std::env::var("HOME").unwrap_or_default();
     Ok(PathBuf::from(home).join("projects/moxin-demo/bridge/moxin-simavr-bridge"))
+}
+
+/// 把 bridge stderr 行追加到日志文件,绝不影响主进程。
+/// 文件打不开就静默丢弃 —— bridge stderr 是诊断信息,不致命。
+fn stderr_reader_loop(stderr: std::process::ChildStderr, log_path: PathBuf) {
+    use std::fs::OpenOptions;
+    use std::io::Write;
+
+    let mut log = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)
+        .ok();
+
+    let reader = BufReader::new(stderr);
+    for line in reader.lines() {
+        let line = match line {
+            Ok(l) => l,
+            Err(_) => break,
+        };
+        if let Some(f) = log.as_mut() {
+            let _ = writeln!(f, "{}", line);
+        }
+    }
+}
+
+/// 决定 bridge 日志文件路径:
+///   首选 `~/.cache/moxin/bridge.log`(目录自动建)
+///   HOME 缺失或目录建不出 → fallback 到 `./.moxin-bridge.log`
+fn bridge_log_path() -> PathBuf {
+    if let Some(home) = std::env::var("HOME").ok().filter(|h| !h.is_empty()) {
+        let dir = PathBuf::from(home).join(".cache").join("moxin");
+        if std::fs::create_dir_all(&dir).is_ok() {
+            return dir.join("bridge.log");
+        }
+    }
+    PathBuf::from(".moxin-bridge.log")
 }
