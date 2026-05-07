@@ -104,7 +104,7 @@ fn repl_piped(shell: &mut Shell) -> Result<()> {
     Ok(())
 }
 
-struct Shell {
+pub struct Shell {
     root: PathBuf,
     project: Project,
     running: Option<RunningSim>,

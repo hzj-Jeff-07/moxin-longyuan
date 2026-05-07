@@ -5,6 +5,7 @@ mod cmd_run;
 mod project;
 mod render;
 mod shell;
+mod tui;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
