@@ -1,0 +1,4 @@
+/target
+/bridge/moxin-simavr-bridge
+/bridge/*.o
+.DS_Store
