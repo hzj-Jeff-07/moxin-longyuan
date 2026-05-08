@@ -1,6 +1,8 @@
 use crate::board::{board_info, PinRef};
 use crate::cmd_build::cmd_build;
+use crate::cmd_build_stm32::cmd_build_stm32;
 use crate::cmd_run::{cmd_run, RunningSim};
+use crate::cmd_run_stm32::cmd_run_stm32;
 use crate::project::{Component, Project, Wire};
 use crate::render::{render_project, render_runtime_frame};
 use anyhow::{Context, Result, anyhow, bail};
@@ -282,8 +284,20 @@ impl Shell {
     }
 
     fn cmd_build(&self) -> Result<String> {
-        let (_hex, msg) = cmd_build(&self.root)?;
-        Ok(msg)
+        match self.project.project.board.as_str() {
+            "arduino-uno" => {
+                let (_hex, msg) = cmd_build(&self.root)?;
+                Ok(msg)
+            }
+            "stm32" => {
+                let (_elf, msg) = cmd_build_stm32(&self.root)?;
+                Ok(msg)
+            }
+            other => bail!(
+                "unsupported board `{}` in moxin.toml — supported: arduino-uno, stm32",
+                other
+            ),
+        }
     }
 
     fn cmd_run_sim(&mut self) -> Result<String> {
@@ -292,16 +306,34 @@ impl Shell {
                 bail!("simulator already running (use `stop` first)");
             }
         }
-        let hex = self
-            .root
-            .join("build")
-            .join(format!("{}.hex", self.project.project.name));
-        if !hex.exists() {
-            bail!("hex not found at {} — run `build` first", hex.display());
-        }
-        let sim = cmd_run(&self.root, &hex)?;
+        let (sim, label) = match self.project.project.board.as_str() {
+            "arduino-uno" => {
+                let hex = self
+                    .root
+                    .join("build")
+                    .join(format!("{}.hex", self.project.project.name));
+                if !hex.exists() {
+                    bail!("hex not found at {} — run `build` first", hex.display());
+                }
+                (cmd_run(&self.root, &hex)?, "simavr")
+            }
+            "stm32" => {
+                let elf = self
+                    .root
+                    .join("build")
+                    .join(format!("{}.elf", self.project.project.name));
+                if !elf.exists() {
+                    bail!("elf not found at {} — run `build` first", elf.display());
+                }
+                (cmd_run_stm32(&self.root, &elf)?, "qemu/stm32")
+            }
+            other => bail!(
+                "unsupported board `{}` — supported: arduino-uno, stm32",
+                other
+            ),
+        };
         self.running = Some(sim);
-        Ok("✓ simulator started (simavr)".to_string())
+        Ok(format!("✓ simulator started ({})", label))
     }
 
     fn cmd_stop(&mut self) -> Result<String> {
