@@ -14,6 +14,8 @@ pub enum PinRef {
     BoardAnalog(u8),
     BoardGnd,
     Board5V,
+    /// STM32 风格端口引脚 PA13, PB5, PC0 等
+    BoardPort { port: String, pin: u8 },
     Component { id: String, terminal: String },
 }
 
@@ -41,6 +43,7 @@ impl PinRef {
             PinRef::BoardAnalog(n) => format!("A{}", n),
             PinRef::BoardGnd => "GND".to_string(),
             PinRef::Board5V => "5V".to_string(),
+            PinRef::BoardPort { port, pin } => format!("{}{}", port, pin),
             PinRef::Component { id, terminal } => format!("{}.{}", id, terminal),
         }
     }
@@ -52,6 +55,7 @@ impl PinRef {
             PinRef::BoardAnalog(n) => format!("board.A{}", n),
             PinRef::BoardGnd => "board.GND".to_string(),
             PinRef::Board5V => "board.5V".to_string(),
+            PinRef::BoardPort { port, pin } => format!("board.{}{}", port, pin),
             PinRef::Component { id, terminal } => format!("{}.{}", id, terminal),
         }
     }
@@ -79,6 +83,15 @@ fn parse_board_terminal(t: &str) -> Result<PinRef> {
         if let Ok(n) = rest.parse::<u8>() {
             if n <= 5 {
                 return Ok(PinRef::BoardAnalog(n));
+            }
+        }
+    }
+    // PA13, PB5, PC0 等 STM32 风格端口引脚
+    if up.len() >= 3 && up.starts_with('P') {
+        let port_char = up.chars().nth(1).unwrap_or(' ');
+        if port_char.is_ascii_uppercase() {
+            if let Ok(n) = up[2..].parse::<u8>() {
+                return Ok(PinRef::BoardPort { port: format!("P{}", port_char), pin: n });
             }
         }
     }
@@ -176,6 +189,24 @@ mod tests {
         assert_eq!(PinRef::BoardAnalog(0).render_canonical(), "board.A0");
         assert_eq!(PinRef::BoardGnd.render_canonical(), "board.GND");
         assert_eq!(PinRef::Board5V.render_canonical(), "board.5V");
+    }
+
+    #[test]
+    fn parse_stm32_pa13() {
+        assert_eq!(PinRef::parse("PA13").unwrap(), PinRef::BoardPort { port: "PA".into(), pin: 13 });
+        assert_eq!(PinRef::parse("board.PA13").unwrap(), PinRef::BoardPort { port: "PA".into(), pin: 13 });
+    }
+
+    #[test]
+    fn parse_stm32_pb5() {
+        assert_eq!(PinRef::parse("PB5").unwrap(), PinRef::BoardPort { port: "PB".into(), pin: 5 });
+    }
+
+    #[test]
+    fn render_canonical_board_port_has_prefix() {
+        let p = PinRef::BoardPort { port: "PA".into(), pin: 13 };
+        assert_eq!(p.render_canonical(), "board.PA13");
+        assert_eq!(p.render(), "PA13");
     }
 
     #[test]

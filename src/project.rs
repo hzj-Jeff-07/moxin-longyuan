@@ -73,6 +73,7 @@ impl Project {
     }
 
     /// STM32F405 (netduinoplus2) blink 模板:`src/main.c`
+    #[allow(dead_code)]
     pub fn new_blink_stm32(name: &str) -> Self {
         Project {
             project: ProjectMeta {

@@ -1,4 +1,4 @@
-use anyhow::{Result, anyhow};
+use anyhow::{Result, anyhow, bail};
 use serde::Deserialize;
 use std::collections::VecDeque;
 use std::io::{BufRead, BufReader};
@@ -94,19 +94,19 @@ impl RunningSim {
     }
 }
 
+type IsD13Fn = Box<dyn Fn(&str, u32) -> bool + Send + 'static>;
+
 /// Wrap an already-spawned bridge child into a RunningSim.
 /// `is_d13` determines which (port, bit) pair maps to the board's D13 LED.
 pub fn spawn_with_state(
     mut child: Child,
     voltage_mv: u32,
-    is_d13: Box<dyn Fn(&str, u32) -> bool + Send + 'static>,
+    is_d13: IsD13Fn,
 ) -> Result<RunningSim> {
     let stdout = child.stdout.take().ok_or_else(|| anyhow!("bridge stdout not piped"))?;
     let stderr = child.stderr.take().ok_or_else(|| anyhow!("bridge stderr not piped"))?;
 
-    let mut initial = RunState::default();
-    initial.voltage_mv = voltage_mv;
-    let state = Arc::new(Mutex::new(initial));
+    let state = Arc::new(Mutex::new(RunState { voltage_mv, ..RunState::default() }));
 
     let state_bg = Arc::clone(&state);
     let handle = thread::spawn(move || reader_loop(stdout, state_bg, is_d13));
@@ -125,21 +125,18 @@ pub fn spawn_with_state(
 fn reader_loop(
     stdout: ChildStdout,
     state: Arc<Mutex<RunState>>,
-    is_d13: Box<dyn Fn(&str, u32) -> bool + Send + 'static>,
+    is_d13: IsD13Fn,
 ) {
     let reader = BufReader::new(stdout);
     for line in reader.lines() {
         let line = match line { Ok(l) => l, Err(_) => break };
         let trimmed = line.trim();
         if trimmed.is_empty() { continue; }
-        match serde_json::from_str::<BridgeEvent>(trimmed) {
-            Ok(ev) => {
-                if std::env::var("MOXIN_DEBUG").is_ok() {
-                    eprintln!("[debug] {:?}", ev);
-                }
-                apply_event(&state, ev, &is_d13);
+        if let Ok(ev) = serde_json::from_str::<BridgeEvent>(trimmed) {
+            if std::env::var("MOXIN_DEBUG").is_ok() {
+                eprintln!("[debug] {:?}", ev);
             }
-            Err(_) => {}
+            apply_event(&state, ev, &is_d13);
         }
     }
     if let Ok(mut s) = state.lock() {
@@ -155,7 +152,7 @@ fn apply_event(
     ev: BridgeEvent,
     is_d13: &dyn Fn(&str, u32) -> bool,
 ) {
-    let mut s = state.lock().unwrap();
+    let Ok(mut s) = state.lock() else { return };
     match ev {
         BridgeEvent::Ready { mcu, freq } => {
             s.ready = true;
@@ -215,8 +212,7 @@ pub fn find_bridge_avr() -> Result<PathBuf> {
             if candidate.exists() { return Ok(candidate); }
         }
     }
-    let home = std::env::var("HOME").unwrap_or_default();
-    Ok(PathBuf::from(home).join("projects/moxin-demo/bridge/moxin-simavr-bridge"))
+    bail!("simavr bridge not found — set $MOXIN_BRIDGE env var or place moxin-simavr-bridge next to the moxin binary")
 }
 
 pub fn find_bridge_stm32() -> Result<PathBuf> {
@@ -229,8 +225,7 @@ pub fn find_bridge_stm32() -> Result<PathBuf> {
             if candidate.exists() { return Ok(candidate); }
         }
     }
-    let home = std::env::var("HOME").unwrap_or_default();
-    Ok(PathBuf::from(home).join("projects/moxin-demo/bridge/stm32/bridge-stm32"))
+    bail!("stm32 bridge not found — set $MOXIN_BRIDGE_STM32 env var or place bridge-stm32 next to the moxin binary")
 }
 
 /// Spawn a child process with piped stdio, ready for spawn_with_state.
@@ -243,4 +238,25 @@ pub fn spawn_bridge_child(bridge: &std::path::Path, args: &[&std::path::Path], r
         .current_dir(root)
         .spawn()
         .map_err(|e| anyhow!("spawn {}: {}", bridge.display(), e))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn find_bridge_avr_uses_env_var() {
+        std::env::set_var("MOXIN_BRIDGE", "/tmp/fake-bridge");
+        let p = find_bridge_avr().unwrap();
+        assert_eq!(p, PathBuf::from("/tmp/fake-bridge"));
+        std::env::remove_var("MOXIN_BRIDGE");
+    }
+
+    #[test]
+    fn find_bridge_stm32_uses_env_var() {
+        std::env::set_var("MOXIN_BRIDGE_STM32", "/tmp/fake-stm32-bridge");
+        let p = find_bridge_stm32().unwrap();
+        assert_eq!(p, PathBuf::from("/tmp/fake-stm32-bridge"));
+        std::env::remove_var("MOXIN_BRIDGE_STM32");
+    }
 }

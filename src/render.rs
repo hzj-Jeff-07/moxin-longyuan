@@ -100,7 +100,7 @@ fn format_led(led: &Component, level: LedLevel) -> (String, &'static str) {
     }
 }
 
-fn leds_connected_to_pin<'a>(project: &'a Project, pin_n: u8) -> Vec<&'a Component> {
+fn leds_connected_to_pin(project: &Project, pin_n: u8) -> Vec<&Component> {
     let mut found = Vec::new();
     for w in &project.wires {
         let from = PinRef::parse(&w.from).ok();
@@ -286,6 +286,7 @@ fn wire_row_line<'a>(row: &WireRow<'a>, state: &RunState) -> Line<'static> {
         PinRef::BoardAnalog(n) => format!("A{}    ", n),
         PinRef::BoardGnd => "GND  ".to_string(),
         PinRef::Board5V => "5V   ".to_string(),
+        PinRef::BoardPort { port, pin } => format!("{}{:02}", port, pin),
         PinRef::Component { .. } => "?    ".to_string(),
     };
 
@@ -296,6 +297,7 @@ fn wire_row_line<'a>(row: &WireRow<'a>, state: &RunState) -> Line<'static> {
             // 其它 pin 在 v2a 阶段没多 pin 状态可派生 → 静态 OFF。
             let level = match &row.pin {
                 PinRef::BoardDigital(13) => state.d13,
+                PinRef::BoardPort { port, pin } if port == "PA" && *pin == 13 => state.d13,
                 _ => LedLevel::Off,
             };
             let (state_word, marker, marker_style) = match level {

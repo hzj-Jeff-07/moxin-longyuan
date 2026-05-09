@@ -59,7 +59,7 @@ fn main() -> Result<()> {
             let root = project::Project::find_project_root(&cwd)?;
             let project = project::Project::load(&root.join("moxin.toml"))?;
             let board = boards::board_from_str(&project.project.board)?;
-            let ext = if project.project.board == "stm32" { "elf" } else { "hex" };
+            let ext = board.artifact_ext();
             let artifact = root.join("build").join(format!("{}.{}", project.project.name, ext));
             if !artifact.exists() {
                 bail!("artifact not found at {} — run `build` first", artifact.display());
