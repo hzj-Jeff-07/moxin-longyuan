@@ -24,7 +24,9 @@ Non-PIN UART output lines. Extensible for future boards.
 ### exit
 {"event":"exit","state":<n>}
 
-## Firmware Convention
+## Protocol Version History
+- v1 (v2a): Initial protocol. STM32 uses "GPIO" as port placeholder.
+- Future v2: Will use real port names (PA/PB/PC) aligned with BoardSpec.pins.
 STM32 firmware must emit "PIN<n>=<0|1>\n" on USART2 for GPIO events to be detected.
 AVR: simavr instruments GPIO directly, no firmware convention needed.
 

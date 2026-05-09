@@ -1,3 +1,4 @@
+use crate::boards::spec::{ArtifactKind, BoardSpec, PinSpec};
 use crate::project::{CodeMeta, Project, ProjectMeta, SCHEMA_VERSION};
 use crate::sim::{RunningSim, find_bridge_avr, spawn_bridge_child, spawn_with_state};
 use anyhow::{Context, Result, bail};
@@ -5,6 +6,24 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 const FQBN: &str = "arduino:avr:uno";
+
+pub static ARDUINO_UNO_SPEC: BoardSpec = BoardSpec {
+    board_id: "arduino-uno",
+    display_name: "Arduino Uno",
+    mcu: "ATmega328P",
+    clock_hz: 16_000_000,
+    voltage_mv: 5000,
+    artifact_kind: ArtifactKind::Hex,
+    pins: &[
+        PinSpec { name: "D13", aliases: &["pin13", "13", "d13"], is_d13_led: true },
+        PinSpec { name: "D12", aliases: &["pin12", "12", "d12"], is_d13_led: false },
+        PinSpec { name: "D2",  aliases: &["pin2",  "2",  "d2"],  is_d13_led: false },
+        PinSpec { name: "GND", aliases: &["gnd"],                is_d13_led: false },
+        PinSpec { name: "5V",  aliases: &["5v", "vcc"],          is_d13_led: false },
+    ],
+    serial_count: 1,
+    gpio_count: 14,
+};
 
 pub const BLINK_INO_TEMPLATE: &str = r#"// 由 moxin new 自动生成
 // 经典 blink:D13 每 1000 ms 翻转一次
@@ -25,9 +44,7 @@ void loop() {
 pub struct ArduinoUno;
 
 impl super::BoardImpl for ArduinoUno {
-    fn board_name(&self) -> &'static str { "arduino-uno" }
-    fn voltage_mv(&self) -> u32 { 5000 }
-    fn artifact_ext(&self) -> &'static str { "hex" }
+    fn spec(&self) -> &'static super::spec::BoardSpec { &ARDUINO_UNO_SPEC }
     fn scaffold_project(&self, name: &str) -> Project {
         Project {
             project: ProjectMeta { name: name.to_string(), board: "arduino-uno".to_string(), version: SCHEMA_VERSION.to_string() },
