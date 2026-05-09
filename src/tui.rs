@@ -170,7 +170,7 @@ fn build_snapshot(
     last_message: &Option<(String, Instant, Severity)>,
 ) -> FrameSnapshot {
     let project = &shell.project;
-    let serial_supported = matches!(project.project.board.as_str(), "stm32");
+    let serial_supported = true; // all boards support serial monitor
     let inspector = StubInspector;
 
     let (title, board_lines, serial_lines, inspector_lines, inspector_status, status_text, status_color) =
@@ -449,6 +449,15 @@ pub fn run(shell: &mut crate::shell::Shell) -> Result<()> {
                         if ctrl && (c == 'c' || c == 'C') {
                             input.clear();
                         } else if !ctrl && !alt {
+                            // If simulator running and input bar is empty, inject char as serial RX
+                            if input.buffer.is_empty() {
+                                if let Some(sim) = shell.running.as_mut() {
+                                    if let Some(stdin) = sim.stdin.as_mut() {
+                                        use std::io::Write;
+                                        let _ = stdin.write_all(&[c as u8]);
+                                    }
+                                }
+                            }
                             input.insert_char(c);
                         }
                     }
