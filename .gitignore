@@ -6,3 +6,4 @@
 /examples/stm32-blink/blink.elf
 /examples/stm32-blink/*.o
 .DS_Store
+.claude/
