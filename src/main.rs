@@ -1,13 +1,11 @@
 mod board;
-mod cmd_build;
-mod cmd_build_stm32;
+mod boards;
 mod cmd_new;
-mod cmd_run;
-mod cmd_run_stm32;
 mod inspector;
 mod project;
 mod render;
 mod shell;
+mod sim;
 mod tui;
 
 use anyhow::{Result, bail};
@@ -25,19 +23,17 @@ enum Cmd {
     /// 新建项目
     New {
         name: String,
-        /// 板号: uno (Arduino Uno) 或 stm32 (STM32F405 / netduinoplus2)
         #[arg(long, default_value = "uno")]
         board: String,
     },
     /// 进入交互式 shell
     Shell {
-        /// 强制退回旧 rustyline 提示符,不进 TUI
         #[arg(long = "no-tui")]
         no_tui: bool,
     },
-    /// 编译项目(板分发:uno→arduino-cli,stm32→arm-none-eabi-gcc)
+    /// 编译项目
     Build,
-    /// 启动模拟器,跑到回车键按下退出
+    /// 启动模拟器
     Run,
 }
 
@@ -53,41 +49,22 @@ fn main() -> Result<()> {
             let cwd = std::env::current_dir()?;
             let root = project::Project::find_project_root(&cwd)?;
             let project = project::Project::load(&root.join("moxin.toml"))?;
-            let msg = match project.project.board.as_str() {
-                "arduino-uno" => {
-                    let (_hex, msg) = cmd_build::cmd_build(&root)?;
-                    msg
-                }
-                "stm32" => {
-                    let (_elf, msg) = cmd_build_stm32::cmd_build_stm32(&root)?;
-                    msg
-                }
-                other => bail!("unsupported board `{}` in moxin.toml", other),
-            };
-            if !msg.is_empty() {
-                println!("{}", msg);
-            }
+            let board = boards::board_from_str(&project.project.board)?;
+            let (_artifact, msg) = board.build(&root)?;
+            if !msg.is_empty() { println!("{}", msg); }
             Ok(())
         }
         Cmd::Run => {
             let cwd = std::env::current_dir()?;
             let root = project::Project::find_project_root(&cwd)?;
             let project = project::Project::load(&root.join("moxin.toml"))?;
-            let sim = match project.project.board.as_str() {
-                "arduino-uno" => {
-                    let hex = root
-                        .join("build")
-                        .join(format!("{}.hex", project.project.name));
-                    cmd_run::cmd_run(&root, &hex)?
-                }
-                "stm32" => {
-                    let elf = root
-                        .join("build")
-                        .join(format!("{}.elf", project.project.name));
-                    cmd_run_stm32::cmd_run_stm32(&root, &elf)?
-                }
-                other => bail!("unsupported board `{}` in moxin.toml", other),
-            };
+            let board = boards::board_from_str(&project.project.board)?;
+            let ext = if project.project.board == "stm32" { "elf" } else { "hex" };
+            let artifact = root.join("build").join(format!("{}.{}", project.project.name, ext));
+            if !artifact.exists() {
+                bail!("artifact not found at {} — run `build` first", artifact.display());
+            }
+            let sim = board.spawn_sim(&root, &artifact)?;
             println!("✓ simulator started ({})", project.project.board);
             println!("(press ENTER to stop)");
             let mut buf = String::new();

@@ -26,7 +26,7 @@ use ratatui::widgets::{Block, Borders, Paragraph};
 use std::io;
 use std::time::{Duration, Instant};
 
-use crate::cmd_run::RunState;
+use crate::sim::RunState;
 use crate::inspector::{Inspector, InspectorLine, InspectorStatus, StubInspector};
 use crate::project::Project;
 

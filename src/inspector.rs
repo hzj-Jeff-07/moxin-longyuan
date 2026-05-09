@@ -8,7 +8,7 @@
 //!   "AI Inspector 走外接模型:LLM API / MCP server 出来的结果,MoXin 不自训、
 //!    不内置模型,只负责提供结构化状态 + 渲染外部模型回答。"
 
-use crate::cmd_run::{LedLevel, RunState};
+use crate::sim::{LedLevel, RunState};
 use crate::project::Project;
 use ratatui::style::Color;
 
