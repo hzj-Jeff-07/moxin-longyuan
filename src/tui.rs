@@ -1,13 +1,14 @@
 //! TUI 主体。
 //!
-//! 当前职责(T2 + T4 + T5 + T6 + T7):
-//! - 进 alternate screen + raw mode、隐光标(光标在 set_cursor_position 时由
+//! v2a 之后 (T8 / V1-V4) 的形态:
+//! - alternate screen + raw mode、隐光标(光标在 set_cursor_position 时由
 //!   ratatui 自行 Show)
-//! - 上区块按 30 FPS 重绘 styled frame(电路 ASCII + LED truecolor)
-//! - 中间一行 toast(成功 ✓ 绿 / 失败 ✗ 红,2 秒淡出)
-//! - 底部一行输入条 ▶ buffer,支持 buffer / 光标 / 历史 / Backspace / Ctrl-C 清空
-//! - Enter 调 `Shell::dispatch`,结果进 toast
-//! - ESC 退出、Drop 收尾
+//! - 多面板布局对齐 `docs/design/cli-vision.md`:左上板形 / 左下 Serial Monitor /
+//!   右 AI Inspector / 底输入条 + toast
+//! - 30 FPS 重绘
+//! - 板形面板 title 右侧带状态角标(○ idle / ● run / ✗ error)
+//! - 输入条 buffer / 光标 / 历史 / Backspace / Ctrl-C
+//! - 窗口太窄时降级:<80 cols → 单列只渲染板形 + 输入条
 
 use anyhow::{Context, Result};
 use ratatui::Terminal;
@@ -18,18 +19,20 @@ use ratatui::crossterm::execute;
 use ratatui::crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
-use ratatui::layout::{Alignment, Constraint, Layout, Position};
-use ratatui::style::{Color, Style};
+use ratatui::layout::{Alignment, Constraint, Layout, Position, Rect};
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 use std::io;
 use std::time::{Duration, Instant};
 
-const TOAST_TTL: Duration = Duration::from_secs(2);
+use crate::cmd_run::RunState;
+use crate::inspector::{Inspector, InspectorLine, InspectorStatus, StubInspector};
+use crate::project::Project;
 
-/// RAII 终端守卫:`new()` 时初始化(raw mode + alt screen + hide cursor),
-/// `drop()` 时反向收尾。每一步失败仅 `eprintln!` 到 stderr,绝不 panic / unwrap。
-/// 这样即使初始化部分失败,Drop 仍会尽力还原终端,避免用户终端坏掉。
+const TOAST_TTL: Duration = Duration::from_secs(2);
+const NARROW_WIDTH_THRESHOLD: u16 = 80;
+
 struct TerminalGuard;
 
 impl TerminalGuard {
@@ -63,8 +66,6 @@ enum Severity {
     Error,
 }
 
-/// 输入条状态:用 `Vec<char>` 维护以避开 UTF-8 字节边界陷阱。
-/// `cursor` 是 char 索引;`history_idx == None` 表示当前是新输入态。
 struct InputState {
     buffer: Vec<char>,
     cursor: usize,
@@ -100,15 +101,12 @@ impl InputState {
         }
     }
 
-    /// 清空当前行(Ctrl-C),不退出 TUI
     fn clear(&mut self) {
         self.buffer.clear();
         self.cursor = 0;
         self.history_idx = None;
     }
 
-    /// 提交当前 buffer:返回提交内容,清空 buffer + 写入 history。
-    /// 空 buffer 返回 None,不入 history。
     fn submit(&mut self) -> Option<String> {
         if self.buffer.is_empty() {
             return None;
@@ -144,7 +142,6 @@ impl InputState {
                 self.cursor = self.buffer.len();
             }
             Some(_) => {
-                // 越过最新一条 → 回到新输入态
                 self.buffer.clear();
                 self.cursor = 0;
                 self.history_idx = None;
@@ -152,6 +149,143 @@ impl InputState {
             None => {}
         }
     }
+}
+
+/// 一帧渲染的入参快照。draw 闭包内只在最开头加锁一次取齐数据,
+/// 然后整帧的渲染都不再碰 Mutex,避免 std::sync::Mutex 不可重入和
+/// 锁占用时间过长。
+struct FrameSnapshot {
+    title: String,
+    board_lines: Vec<Line<'static>>,
+    serial_lines: Vec<String>,   // 最近 N 行原始 line(已截掉 t_us)
+    inspector_lines: Vec<InspectorLine>,
+    inspector_status: InspectorStatus,
+    serial_supported: bool,
+    status_text: &'static str,
+    status_color: Color,
+}
+
+fn build_snapshot(
+    shell: &crate::shell::Shell,
+    last_message: &Option<(String, Instant, Severity)>,
+) -> FrameSnapshot {
+    let project = &shell.project;
+    let serial_supported = matches!(project.project.board.as_str(), "stm32");
+    let inspector = StubInspector;
+
+    let (title, board_lines, serial_lines, inspector_lines, inspector_status, status_text, status_color) =
+        match shell.running.as_ref() {
+            Some(sim) => {
+                let st = sim.state.lock().unwrap();
+                let title = format!(
+                    "{} · {} · t={:06.3}s",
+                    project.project.name,
+                    project.project.board,
+                    st.started.elapsed().as_secs_f64()
+                );
+                let board_lines = crate::render::render_runtime_frame_styled(project, &st);
+                let serial: Vec<String> =
+                    st.serial_lines.iter().map(|(_, s)| s.clone()).collect();
+                let (insp_lines, insp_status) = inspector.inspect(project, &st);
+
+                // 状态角标:error(2s 内)优先于 run / idle
+                let (text, color) = match (
+                    last_message.as_ref().map(|(_, _, s)| *s),
+                    true,
+                ) {
+                    (Some(Severity::Error), _) => ("✗ error", Color::Red),
+                    _ => ("● run", Color::Green),
+                };
+
+                (title, board_lines, serial, insp_lines, insp_status, text, color)
+            }
+            None => {
+                let title = format!(
+                    "{} · {}",
+                    project.project.name, project.project.board
+                );
+                let board_lines = crate::render::render_project_styled(project);
+                // idle 状态用 default RunState 喂 inspector,保持渲染对齐
+                let idle = RunState::default();
+                let (insp_lines, insp_status) = inspector.inspect(project, &idle);
+
+                let (text, color) = match last_message.as_ref().map(|(_, _, s)| *s) {
+                    Some(Severity::Error) => ("✗ error", Color::Red),
+                    _ => ("○ idle", Color::DarkGray),
+                };
+
+                (title, board_lines, Vec::new(), insp_lines, insp_status, text, color)
+            }
+        };
+
+    FrameSnapshot {
+        title,
+        board_lines,
+        serial_lines,
+        inspector_lines,
+        inspector_status,
+        serial_supported,
+        status_text,
+        status_color,
+    }
+}
+
+fn render_serial_lines(snap: &FrameSnapshot, area: Rect) -> Vec<Line<'static>> {
+    if !snap.serial_supported {
+        return vec![Line::from(vec![Span::styled(
+            "(serial monitor unavailable for arduino-uno in v2a)".to_string(),
+            Style::default().fg(Color::DarkGray),
+        )])];
+    }
+    if snap.serial_lines.is_empty() {
+        return vec![Line::from(vec![Span::styled(
+            "(waiting for serial output)".to_string(),
+            Style::default().fg(Color::DarkGray),
+        )])];
+    }
+    // area.height - 2 留给 block border
+    let cap = area.height.saturating_sub(2) as usize;
+    let take = snap.serial_lines.len().min(cap.max(1));
+    let start = snap.serial_lines.len() - take;
+    snap.serial_lines[start..]
+        .iter()
+        .map(|s| {
+            Line::from(vec![
+                Span::styled("> ".to_string(), Style::default().fg(Color::DarkGray)),
+                Span::raw(s.clone()),
+            ])
+        })
+        .collect()
+}
+
+fn render_inspector(snap: &FrameSnapshot) -> Vec<Line<'static>> {
+    let mut lines: Vec<Line<'static>> = Vec::with_capacity(snap.inspector_lines.len() + 3);
+    for il in &snap.inspector_lines {
+        let icon_color = if il.icon == '✓' {
+            Color::Rgb(40, 220, 80)
+        } else {
+            Color::DarkGray
+        };
+        lines.push(Line::from(vec![
+            Span::styled(format!(" {} ", il.icon), Style::default().fg(icon_color)),
+            Span::raw(format!("{}: ", il.label)),
+            Span::styled(il.value.clone(), Style::default().fg(il.color)),
+        ]));
+        // 加一行空白拉开行距,接近 mockup 视觉
+        lines.push(Line::from(""));
+    }
+    // Status 段
+    lines.push(Line::from(vec![
+        Span::raw("Status: ".to_string()),
+        Span::styled(
+            snap.inspector_status.label.clone(),
+            Style::default()
+                .fg(snap.inspector_status.color)
+                .add_modifier(Modifier::BOLD),
+        ),
+    ]));
+    lines.push(Line::from(snap.inspector_status.note.clone()));
+    lines
 }
 
 pub fn run(shell: &mut crate::shell::Shell) -> Result<()> {
@@ -162,67 +296,97 @@ pub fn run(shell: &mut crate::shell::Shell) -> Result<()> {
     let mut last_message: Option<(String, Instant, Severity)> = None;
 
     loop {
-        // 过期 toast 主动清掉,避免渲染时刷一次空白
         if let Some((_, ts, _)) = last_message.as_ref() {
             if ts.elapsed() >= TOAST_TTL {
                 last_message = None;
             }
         }
 
+        let snap = build_snapshot(shell, &last_message);
+
         terminal
             .draw(|frame| {
-                let chunks = Layout::vertical([
+                let area = frame.area();
+
+                // outer 垂直分:主区 / toast / input
+                let outer = Layout::vertical([
                     Constraint::Min(0),
                     Constraint::Length(1),
                     Constraint::Length(1),
                 ])
-                .split(frame.area());
+                .split(area);
 
-                // std::sync::Mutex 不可重入,这里**单次加锁**同时取 elapsed 和 lines
-                let (title, lines) = match shell.running.as_ref() {
-                    Some(sim) => {
-                        let st = sim.state.lock().unwrap();
-                        let title = format!(
-                            "moxin · {} · t={:06.3}s",
-                            shell.project.project.board,
-                            st.started.elapsed().as_secs_f64()
-                        );
-                        let lines = crate::render::render_runtime_frame_styled(
-                            &shell.project,
-                            &st,
-                        );
-                        (title, lines)
-                    }
-                    None => {
-                        let title = format!("moxin · {}", shell.project.project.board);
-                        let lines = crate::render::render_project_styled(&shell.project);
-                        (title, lines)
-                    }
-                };
+                let main_area = outer[0];
+                let narrow = main_area.width < NARROW_WIDTH_THRESHOLD;
 
-                // 状态角标:error(2s 内)优先于 run / idle。
-                // last_message 在循环开头已经按 TOAST_TTL=2s 主动清掉,所以只要它还在
-                // 且 severity 是 Error,就是"最近 2s 内有错"。
-                let (status_text, status_color) = match (
-                    last_message.as_ref().map(|(_, _, s)| *s),
-                    shell.running.is_some(),
-                ) {
-                    (Some(Severity::Error), _) => ("✗ error", Color::Red),
-                    (_, true) => ("● run", Color::Green),
-                    _ => ("○ idle", Color::DarkGray),
-                };
+                // 状态角标(右对齐 title)
                 let status_line = Line::from(Span::styled(
-                    status_text.to_string(),
-                    Style::default().fg(status_color),
+                    snap.status_text.to_string(),
+                    Style::default().fg(snap.status_color),
                 ))
                 .alignment(Alignment::Right);
 
-                let block = Block::default()
-                    .title(title)
-                    .title_top(status_line)
-                    .borders(Borders::ALL);
-                frame.render_widget(Paragraph::new(lines).block(block), chunks[0]);
+                if narrow {
+                    // 降级:单列只渲染板形 + 输入条 + 一行 hint
+                    let board_block = Block::default()
+                        .title(format!("[{}]", snap.title))
+                        .title_top(status_line)
+                        .borders(Borders::ALL);
+                    frame.render_widget(
+                        Paragraph::new(snap.board_lines.clone()).block(board_block),
+                        main_area,
+                    );
+                } else {
+                    // main 横向分:左 60% / 右 40%
+                    let cols = Layout::horizontal([
+                        Constraint::Percentage(60),
+                        Constraint::Percentage(40),
+                    ])
+                    .split(main_area);
+                    let left = cols[0];
+                    let right = cols[1];
 
+                    // 左侧再纵向分:板形 60% / Serial 40%
+                    let left_rows = Layout::vertical([
+                        Constraint::Percentage(60),
+                        Constraint::Percentage(40),
+                    ])
+                    .split(left);
+                    let board_area = left_rows[0];
+                    let serial_area = left_rows[1];
+
+                    // 板形 panel
+                    let board_block = Block::default()
+                        .title(format!("[{}]", snap.title))
+                        .title_top(status_line)
+                        .borders(Borders::ALL);
+                    frame.render_widget(
+                        Paragraph::new(snap.board_lines.clone()).block(board_block),
+                        board_area,
+                    );
+
+                    // Serial Monitor panel
+                    let serial_block = Block::default()
+                        .title("[Serial Monitor]")
+                        .borders(Borders::ALL);
+                    let serial_render = render_serial_lines(&snap, serial_area);
+                    frame.render_widget(
+                        Paragraph::new(serial_render).block(serial_block),
+                        serial_area,
+                    );
+
+                    // AI Inspector panel(右)
+                    let insp_block = Block::default()
+                        .title("[AI Inspector]")
+                        .borders(Borders::ALL);
+                    let insp_render = render_inspector(&snap);
+                    frame.render_widget(
+                        Paragraph::new(insp_render).block(insp_block),
+                        right,
+                    );
+                }
+
+                // toast
                 if let Some((msg, _, sev)) = last_message.as_ref() {
                     let (prefix, color) = match sev {
                         Severity::Success => ("✓ ", Color::Green),
@@ -233,16 +397,17 @@ pub fn run(shell: &mut crate::shell::Shell) -> Result<()> {
                         Span::styled(prefix.to_string(), style),
                         Span::styled(msg.clone(), style),
                     ]);
-                    frame.render_widget(Paragraph::new(toast), chunks[1]);
+                    frame.render_widget(Paragraph::new(toast), outer[1]);
                 }
 
+                // input bar
                 let buf_str = input.buffer_string();
-                let prompt_line = format!("▶ {}", buf_str);
-                frame.render_widget(Paragraph::new(prompt_line), chunks[2]);
+                let prompt_line = format!("moxin > {}", buf_str);
+                frame.render_widget(Paragraph::new(prompt_line), outer[2]);
 
-                // 光标:`▶` (1 列) + 空格 (1 列) + buffer 中 cursor 之前的字符数
-                let cursor_x = chunks[2].x + 2 + input.cursor as u16;
-                let cursor_y = chunks[2].y;
+                // 光标:`moxin > ` 占 8 列,然后 buffer 中 cursor 之前的字符数
+                let cursor_x = outer[2].x + 8 + input.cursor as u16;
+                let cursor_y = outer[2].y;
                 frame.set_cursor_position(Position::new(cursor_x, cursor_y));
             })
             .context("draw frame")?;
@@ -280,7 +445,6 @@ pub fn run(shell: &mut crate::shell::Shell) -> Result<()> {
                         } else if !ctrl && !alt {
                             input.insert_char(c);
                         }
-                        // 其它组合键忽略
                     }
                     _ => {}
                 }
@@ -290,5 +454,7 @@ pub fn run(shell: &mut crate::shell::Shell) -> Result<()> {
     Ok(())
 }
 
-
-
+// 抑制 unused_import 警告 if Project not actually used in this file.
+// (Reserved for future direct project access in TUI; harmless.)
+#[allow(dead_code)]
+fn _project_marker(_p: &Project) {}

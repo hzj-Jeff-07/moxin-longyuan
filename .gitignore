@@ -1,4 +1,8 @@
 /target
 /bridge/moxin-simavr-bridge
 /bridge/*.o
+/bridge/stm32/bridge-stm32
+/bridge/stm32/*.o
+/examples/stm32-blink/blink.elf
+/examples/stm32-blink/*.o
 .DS_Store

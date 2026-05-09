@@ -2,6 +2,9 @@ use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
+/// 当前 schema 版本。v2a 引入板抽象,旧的 0.1 项目不再兼容。
+pub const SCHEMA_VERSION: &str = "0.2";
+
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct Project {
     pub project: ProjectMeta,
@@ -45,12 +48,20 @@ pub struct CodeMeta {
 }
 
 impl Project {
+    /// 默认 blink 项目 = arduino uno blink。保留为旧调用点兼容入口
+    /// (T-1 测试 / cmd_new 默认路径)
+    #[allow(dead_code)]
     pub fn new_blink(name: &str) -> Self {
+        Self::new_blink_uno(name)
+    }
+
+    /// Arduino Uno blink 模板:`src/main.ino`
+    pub fn new_blink_uno(name: &str) -> Self {
         Project {
             project: ProjectMeta {
                 name: name.to_string(),
                 board: "arduino-uno".to_string(),
-                version: "0.1".to_string(),
+                version: SCHEMA_VERSION.to_string(),
             },
             components: vec![],
             wires: vec![],
@@ -61,11 +72,36 @@ impl Project {
         }
     }
 
+    /// STM32F405 (netduinoplus2) blink 模板:`src/main.c`
+    pub fn new_blink_stm32(name: &str) -> Self {
+        Project {
+            project: ProjectMeta {
+                name: name.to_string(),
+                board: "stm32".to_string(),
+                version: SCHEMA_VERSION.to_string(),
+            },
+            components: vec![],
+            wires: vec![],
+            code: Some(CodeMeta {
+                src: "src/main.c".to_string(),
+                flags: vec![],
+            }),
+        }
+    }
+
     pub fn load(path: &Path) -> Result<Self> {
         let text = std::fs::read_to_string(path)
             .with_context(|| format!("read {}", path.display()))?;
         let p: Project =
             toml::from_str(&text).with_context(|| format!("parse {}", path.display()))?;
+        if p.project.version != SCHEMA_VERSION {
+            bail!(
+                "moxin.toml schema version `{}` is not supported in v2a (expected `{}`).\n\
+                 v2a 引入了板抽象,旧项目无法直接使用。请用 `moxin new <name> [--board=...]` 重新生成项目,\n\
+                 然后把 src/ 下的代码手动迁过去。",
+                p.project.version, SCHEMA_VERSION
+            );
+        }
         Ok(p)
     }
 
@@ -111,7 +147,7 @@ mod tests {
             project: ProjectMeta {
                 name: "demo".to_string(),
                 board: "arduino-uno".to_string(),
-                version: "0.1".to_string(),
+                version: SCHEMA_VERSION.to_string(),
             },
             components: vec![
                 Component {
@@ -143,7 +179,7 @@ mod tests {
         let p = Project::new_blink("blink");
         assert_eq!(p.project.name, "blink");
         assert_eq!(p.project.board, "arduino-uno");
-        assert_eq!(p.project.version, "0.1");
+        assert_eq!(p.project.version, SCHEMA_VERSION);
     }
 
     #[test]
@@ -159,6 +195,15 @@ mod tests {
         let p = Project::new_blink("blink");
         assert!(p.components.is_empty());
         assert!(p.wires.is_empty());
+    }
+
+    #[test]
+    fn new_blink_stm32_uses_c_template() {
+        let p = Project::new_blink_stm32("blinks");
+        assert_eq!(p.project.board, "stm32");
+        assert_eq!(p.project.version, SCHEMA_VERSION);
+        let code = p.code.expect("stm32 template has code");
+        assert_eq!(code.src, "src/main.c");
     }
 
     #[test]
@@ -211,5 +256,16 @@ mod tests {
             .expect("save full project to tempfile");
         let loaded = Project::load(tmp.path()).expect("load full project");
         assert_eq!(loaded, original, "round-trip must preserve all fields");
+    }
+
+    #[test]
+    fn load_rejects_old_schema_version() {
+        let toml_text = "[project]\nname = \"old\"\nboard = \"arduino-uno\"\nversion = \"0.1\"\n";
+        let tmp = NamedTempFile::new().expect("create tempfile");
+        std::fs::write(tmp.path(), toml_text).expect("write old-schema toml");
+        let res = Project::load(tmp.path());
+        assert!(res.is_err(), "0.1 should be rejected with executable msg");
+        let msg = format!("{:#}", res.unwrap_err());
+        assert!(msg.contains("moxin new"), "error must point user at fix: got {msg}");
     }
 }

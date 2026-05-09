@@ -1,8 +1,9 @@
 use anyhow::{Context, Result, anyhow, bail};
 use serde::Deserialize;
+use std::collections::VecDeque;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, ChildStderr, ChildStdout, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Instant;
@@ -13,16 +14,32 @@ pub enum LedLevel {
     On,
 }
 
-/// 共享状态,后台读 bridge stdout 的线程写,主线程的 `show` 命令读
+/// Serial Monitor 环形缓冲容量。
+/// 64 行够 1 屏左右,bridge 比 TUI 出 line 快也不会无界增长。
+pub const SERIAL_BUFFER_CAP: usize = 64;
+
+/// 共享状态,后台读 bridge stdout 的线程写,主线程 / TUI / Inspector 读。
 #[derive(Debug)]
 pub struct RunState {
     pub started: Instant,
     pub ready: bool,
     pub mcu: String,
     pub freq: u32,
-    /// D13 = PORTB bit 5 的当前电平
+    /// 板子标称工作电压(mV)。Inspector 渲染那行 `Voltage: 5.02V` 的源。
+    /// arduino-uno 5000,stm32 3300。
+    pub voltage_mv: u32,
+    /// D13 = 当前演示用 LED 的电平。AVR 上跟 PORTB bit 5 对齐;
+    /// STM32 上跟我们规定的 GPIO bit=13 对齐(firmware 端 toggle PA13)。
     pub d13: LedLevel,
+    /// 最近一次 pin event 的 t_us(MCU 时间轴)。
+    pub last_pin_event_t_us: u64,
+    /// 上一次 pin event 的 t_us。Inspector 用 (last - prev) 算 loop time。
+    pub prev_pin_event_t_us: u64,
+    /// 最近事件的 t_us(任何类型),T7.5 时段进度用。
     pub last_event_t_us: u64,
+    /// Serial Monitor 行环形缓冲。bridge 每收到一行非 PIN 模式的 UART 输出
+    /// 就 push (t_us, line) 进来。容量超 SERIAL_BUFFER_CAP 时从前丢。
+    pub serial_lines: VecDeque<(u64, String)>,
     pub bridge_exited: bool,
     pub bridge_exit_reason: Option<String>,
 }
@@ -34,10 +51,26 @@ impl Default for RunState {
             ready: false,
             mcu: String::new(),
             freq: 0,
+            voltage_mv: 5000,
             d13: LedLevel::Off,
+            last_pin_event_t_us: 0,
+            prev_pin_event_t_us: 0,
             last_event_t_us: 0,
+            serial_lines: VecDeque::with_capacity(SERIAL_BUFFER_CAP),
             bridge_exited: false,
             bridge_exit_reason: None,
+        }
+    }
+}
+
+impl RunState {
+    /// Inspector 用:两次连续 pin event 之间的微秒差。
+    /// 不到两次 pin event 时返回 None,UI 上渲染 "—"。
+    pub fn loop_time_us(&self) -> Option<u64> {
+        if self.prev_pin_event_t_us == 0 || self.last_pin_event_t_us <= self.prev_pin_event_t_us {
+            None
+        } else {
+            Some(self.last_pin_event_t_us - self.prev_pin_event_t_us)
         }
     }
 }
@@ -54,11 +87,13 @@ enum BridgeEvent {
         bit: u8,
         value: u8,
     },
+    #[serde(rename = "serial")]
+    Serial { t_us: u64, line: String },
     #[serde(rename = "exit")]
     Exit { state: i32 },
 }
 
-/// 一个正在运行的 simavr 子进程 + 后台读取线程的句柄
+/// 一个正在运行的 bridge 子进程 + 后台读取线程的句柄
 pub struct RunningSim {
     pub state: Arc<Mutex<RunState>>,
     child: Child,
@@ -98,7 +133,7 @@ pub fn cmd_run(root: &Path, hex: &Path) -> Result<RunningSim> {
         bail!("hex not found: {} — run `build` first", hex.display());
     }
 
-    let mut child = Command::new(&bridge)
+    let child = Command::new(&bridge)
         .arg(hex)
         .arg("atmega328p")
         .arg("16000000")
@@ -109,6 +144,13 @@ pub fn cmd_run(root: &Path, hex: &Path) -> Result<RunningSim> {
         .spawn()
         .with_context(|| format!("spawn {}", bridge.display()))?;
 
+    // arduino-uno 标称 5V
+    spawn_with_state(child, 5000)
+}
+
+/// 通用入口:已经 spawn 出 bridge 子进程后,把它包成 RunningSim。
+/// arduino 路径(cmd_run)和 stm32 路径(cmd_run_stm32)共享。
+pub(crate) fn spawn_with_state(mut child: Child, voltage_mv: u32) -> Result<RunningSim> {
     let stdout = child
         .stdout
         .take()
@@ -118,7 +160,10 @@ pub fn cmd_run(root: &Path, hex: &Path) -> Result<RunningSim> {
         .take()
         .ok_or_else(|| anyhow!("bridge stderr not piped"))?;
 
-    let state = Arc::new(Mutex::new(RunState::default()));
+    let mut initial = RunState::default();
+    initial.voltage_mv = voltage_mv;
+    let state = Arc::new(Mutex::new(initial));
+
     let state_bg = Arc::clone(&state);
     let handle = thread::spawn(move || reader_loop(stdout, state_bg));
 
@@ -133,7 +178,7 @@ pub fn cmd_run(root: &Path, hex: &Path) -> Result<RunningSim> {
     })
 }
 
-fn reader_loop(stdout: std::process::ChildStdout, state: Arc<Mutex<RunState>>) {
+fn reader_loop(stdout: ChildStdout, state: Arc<Mutex<RunState>>) {
     let reader = BufReader::new(stdout);
     for line in reader.lines() {
         let line = match line {
@@ -180,13 +225,26 @@ fn apply_event(state: &Arc<Mutex<RunState>>, ev: BridgeEvent) {
             value,
         } => {
             s.last_event_t_us = t_us;
-            if port == "B" && bit == 5 {
+            s.prev_pin_event_t_us = s.last_pin_event_t_us;
+            s.last_pin_event_t_us = t_us;
+            // 简化映射:AVR 上 PORTB bit5 = D13;STM32 bridge 用 port="GPIO" + bit=13。
+            // 任一种命中都更新 d13。
+            let is_d13 =
+                (port == "B" && bit == 5) || (port == "GPIO" && bit == 13);
+            if is_d13 {
                 s.d13 = if value != 0 {
                     LedLevel::On
                 } else {
                     LedLevel::Off
                 };
             }
+        }
+        BridgeEvent::Serial { t_us, line } => {
+            s.last_event_t_us = t_us;
+            if s.serial_lines.len() == SERIAL_BUFFER_CAP {
+                s.serial_lines.pop_front();
+            }
+            s.serial_lines.push_back((t_us, line));
         }
         BridgeEvent::Exit { state: exit_state } => {
             s.bridge_exited = true;
@@ -199,7 +257,6 @@ fn find_bridge() -> Result<PathBuf> {
     if let Ok(p) = std::env::var("MOXIN_BRIDGE") {
         return Ok(PathBuf::from(p));
     }
-    // 尝试在 moxin 可执行文件附近找
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
             let candidate = dir.join("moxin-simavr-bridge");
@@ -208,14 +265,13 @@ fn find_bridge() -> Result<PathBuf> {
             }
         }
     }
-    // 开发默认路径
     let home = std::env::var("HOME").unwrap_or_default();
     Ok(PathBuf::from(home).join("projects/moxin-demo/bridge/moxin-simavr-bridge"))
 }
 
 /// 把 bridge stderr 行追加到日志文件,绝不影响主进程。
 /// 文件打不开就静默丢弃 —— bridge stderr 是诊断信息,不致命。
-fn stderr_reader_loop(stderr: std::process::ChildStderr, log_path: PathBuf) {
+pub(crate) fn stderr_reader_loop(stderr: ChildStderr, log_path: PathBuf) {
     use std::fs::OpenOptions;
     use std::io::Write;
 
@@ -240,7 +296,7 @@ fn stderr_reader_loop(stderr: std::process::ChildStderr, log_path: PathBuf) {
 /// 决定 bridge 日志文件路径:
 ///   首选 `~/.cache/moxin/bridge.log`(目录自动建)
 ///   HOME 缺失或目录建不出 → fallback 到 `./.moxin-bridge.log`
-fn bridge_log_path() -> PathBuf {
+pub(crate) fn bridge_log_path() -> PathBuf {
     if let Some(home) = std::env::var("HOME").ok().filter(|h| !h.is_empty()) {
         let dir = PathBuf::from(home).join(".cache").join("moxin");
         if std::fs::create_dir_all(&dir).is_ok() {
