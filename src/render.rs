@@ -282,49 +282,39 @@ fn is_component(p: &PinRef) -> bool {
 /// 在 v2a 阶段 fall back 成静态 OFF 灰)。
 fn wire_row_line<'a>(row: &WireRow<'a>, state: &RunState) -> Line<'static> {
     let pin_label = match &row.pin {
-        PinRef::BoardDigital(n) => format!("PIN{:02}", n),
-        PinRef::BoardAnalog(n) => format!("A{}    ", n),
-        PinRef::BoardGnd => "GND  ".to_string(),
-        PinRef::Board5V => "5V   ".to_string(),
-        PinRef::BoardPort { port, pin } => format!("{}{:02}", port, pin),
-        PinRef::Component { .. } => "?    ".to_string(),
+        PinRef::BoardDigital(n) => format!("{:<4}", format!("D{}", n)),
+        PinRef::BoardAnalog(n) => format!("{:<4}", format!("A{}", n)),
+        PinRef::BoardGnd => "GND ".to_string(),
+        PinRef::Board5V => "5V  ".to_string(),
+        PinRef::BoardPort { port, pin } => format!("{:<4}", format!("{}{}", port, pin)),
+        PinRef::Component { .. } => "?   ".to_string(),
     };
 
     match row.component.kind.as_str() {
         "led" => {
             let color_name = row.component.color.as_deref().unwrap_or("red");
-            // 只有连到 D13 的 LED 跟 RunState.d13 联动。
-            // 其它 pin 在 v2a 阶段没多 pin 状态可派生 → 静态 OFF。
             let level = match &row.pin {
                 PinRef::BoardDigital(13) => state.d13,
                 PinRef::BoardPort { port, pin } if port == "PA" && *pin == 13 => state.d13,
                 _ => LedLevel::Off,
             };
             let (state_word, marker, marker_style) = match level {
-                LedLevel::On => (
-                    "ON ",
-                    "#",
-                    Style::default().fg(led_color(color_name)),
-                ),
-                LedLevel::Off => (
-                    "OFF",
-                    ".",
-                    Style::default().fg(Color::DarkGray),
-                ),
+                LedLevel::On  => ("ON ", "●", Style::default().fg(led_color(color_name))),
+                LedLevel::Off => ("OFF", "○", Style::default().fg(Color::DarkGray)),
             };
+            let abbr: String = color_name.to_uppercase().chars().take(3).collect();
             Line::from(vec![
-                Span::raw(format!(" {} ●——[", pin_label)),
-                Span::raw(format!("LED:{} {} {} ", row.component.id, color_name, state_word)),
+                Span::raw(format!(" {} ━━━━━━━━━━━━━━━━━━━━━━ ", pin_label)),
                 Span::styled(marker.to_string(), marker_style),
-                Span::raw("]".to_string()),
+                Span::raw(format!(" {} [{} {}]", row.component.id, abbr, state_word)),
             ])
         }
         "button" => Line::from(format!(
-            " {} ●——[Button:{} UP]",
+            " {} ━━━━━━━━━━━━━━━━━━━━━━ ● {} [BTN UP]",
             pin_label, row.component.id
         )),
         other => Line::from(format!(
-            " {} ●——[{}:{}]",
+            " {} ━━━━━━━━━━━━━━━━━━━━━━ ● {}:{}",
             pin_label, other, row.component.id
         )),
     }

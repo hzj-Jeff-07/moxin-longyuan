@@ -3,7 +3,7 @@ use serde::Deserialize;
 use std::collections::VecDeque;
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
-use std::process::{Child, ChildStderr, ChildStdout, Command, Stdio};
+use std::process::{Child, ChildStderr, ChildStdout, ChildStdin, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Instant;
@@ -76,6 +76,7 @@ enum BridgeEvent {
 
 pub struct RunningSim {
     pub state: Arc<Mutex<RunState>>,
+    pub stdin: Option<ChildStdin>,
     child: Child,
     reader_handle: Option<thread::JoinHandle<()>>,
     stderr_reader_handle: Option<thread::JoinHandle<()>>,
@@ -103,6 +104,7 @@ pub fn spawn_with_state(
     voltage_mv: u32,
     is_d13: IsD13Fn,
 ) -> Result<RunningSim> {
+    let stdin = child.stdin.take();
     let stdout = child.stdout.take().ok_or_else(|| anyhow!("bridge stdout not piped"))?;
     let stderr = child.stderr.take().ok_or_else(|| anyhow!("bridge stderr not piped"))?;
 
@@ -116,6 +118,7 @@ pub fn spawn_with_state(
 
     Ok(RunningSim {
         state,
+        stdin,
         child,
         reader_handle: Some(handle),
         stderr_reader_handle: Some(stderr_handle),
