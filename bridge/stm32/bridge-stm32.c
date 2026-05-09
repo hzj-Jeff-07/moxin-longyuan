@@ -144,7 +144,8 @@ static int run_qemu(const char *elf_path) {
                "-kernel", elf_path,
                "-nographic",
                "-monitor", "none",
-               "-serial", "stdio",
+               "-serial", "null",   /* serial0 (USART1) — unused */
+               "-serial", "stdio",  /* serial1 (USART2) — firmware output */
                (char *)NULL);
         fprintf(stderr, "bridge-stm32: execlp qemu-system-arm failed: %s\n",
                 strerror(errno));
