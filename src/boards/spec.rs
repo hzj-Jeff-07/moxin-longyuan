@@ -1,7 +1,8 @@
 use crate::board::PinRef;
 
+type IsD13Fn = Box<dyn Fn(&str, u32) -> bool + Send + 'static>;
+
 #[derive(Debug)]
-#[allow(dead_code)]
 pub struct BoardSpec {
     pub board_id: &'static str,
     pub display_name: &'static str,
@@ -12,20 +13,22 @@ pub struct BoardSpec {
     pub pins: &'static [PinSpec],
     pub serial_count: u8,
     pub gpio_count: u16,
+    /// bridge 协议里 D13 LED 对应的 port 字符串（simavr: "B", stm32: "GPIO"）
+    pub d13_bridge_port: &'static str,
+    /// bridge 协议里 D13 LED 对应的 bit 编号（simavr: 5, stm32: 13）
+    pub d13_bridge_bit: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ArtifactKind { Hex, Elf }
 
 #[derive(Debug)]
-#[allow(dead_code)]
 pub struct PinSpec {
     pub name: &'static str,
     pub aliases: &'static [&'static str],
     pub is_d13_led: bool,
 }
 
-#[allow(dead_code)]
 impl BoardSpec {
     pub fn artifact_ext(&self) -> &'static str {
         match self.artifact_kind {
@@ -52,5 +55,36 @@ impl BoardSpec {
             PinRef::BoardPort { port, pin } => self.find_pin(&format!("{}{}", port, pin)).is_some(),
             PinRef::Component { .. } => true,
         }
+    }
+
+    /// Returns true if the given PinRef is the board's D13 LED pin.
+    pub fn is_d13_pin(&self, pin: &PinRef) -> bool {
+        match pin {
+            PinRef::BoardDigital(n) => self.find_pin(&format!("D{}", n)).map(|p| p.is_d13_led).unwrap_or(false),
+            PinRef::BoardAnalog(n) => self.find_pin(&format!("A{}", n)).map(|p| p.is_d13_led).unwrap_or(false),
+            PinRef::BoardPort { port, pin } => self.find_pin(&format!("{}{}", port, pin)).map(|p| p.is_d13_led).unwrap_or(false),
+            _ => false,
+        }
+    }
+
+    /// Returns a closure that maps (port, bit) → bool for the D13 LED, derived from spec.
+    pub fn make_is_d13(&self) -> IsD13Fn {
+        let port = self.d13_bridge_port;
+        let bit = self.d13_bridge_bit;
+        Box::new(move |p: &str, b: u32| p == port && b == bit)
+    }
+
+    /// Board info string derived from spec fields.
+    pub fn board_info_string(&self) -> String {
+        format!(
+            "{} ({}) · {}MHz · {} pins · {}mV · {} UART · {} GPIO",
+            self.display_name,
+            self.mcu,
+            self.clock_hz / 1_000_000,
+            self.pins.len(),
+            self.voltage_mv,
+            self.serial_count,
+            self.gpio_count,
+        )
     }
 }

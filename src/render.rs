@@ -1,4 +1,5 @@
 use crate::board::PinRef;
+use crate::boards::BoardSpec;
 use crate::sim::{LedLevel, RunState};
 use crate::project::{Component, Project};
 use ratatui::style::{Color, Style};
@@ -280,7 +281,7 @@ fn is_component(p: &PinRef) -> bool {
 ///
 /// LED 状态字符的颜色随 RunState.d13(只对 board pin 13 起效;其它 pin
 /// 在 v2a 阶段 fall back 成静态 OFF 灰)。
-fn wire_row_line<'a>(row: &WireRow<'a>, state: &RunState) -> Line<'static> {
+fn wire_row_line<'a>(row: &WireRow<'a>, state: &RunState, spec: &BoardSpec) -> Line<'static> {
     let pin_label = match &row.pin {
         PinRef::BoardDigital(n) => format!("{:<4}", format!("D{}", n)),
         PinRef::BoardAnalog(n) => format!("{:<4}", format!("A{}", n)),
@@ -293,11 +294,7 @@ fn wire_row_line<'a>(row: &WireRow<'a>, state: &RunState) -> Line<'static> {
     match row.component.kind.as_str() {
         "led" => {
             let color_name = row.component.color.as_deref().unwrap_or("red");
-            let level = match &row.pin {
-                PinRef::BoardDigital(13) => state.d13,
-                PinRef::BoardPort { port, pin } if port == "PA" && *pin == 13 => state.d13,
-                _ => LedLevel::Off,
-            };
+            let level = if spec.is_d13_pin(&row.pin) { state.d13 } else { LedLevel::Off };
             let (state_word, marker, marker_style) = match level {
                 LedLevel::On  => ("ON ", "●", Style::default().fg(led_color(color_name))),
                 LedLevel::Off => ("OFF", "○", Style::default().fg(Color::DarkGray)),
@@ -310,8 +307,9 @@ fn wire_row_line<'a>(row: &WireRow<'a>, state: &RunState) -> Line<'static> {
             ])
         }
         "button" => Line::from(format!(
-            " {} ━━━━━━━━━━━━━━━━━━━━━━ ● {} [BTN UP]",
-            pin_label, row.component.id
+            " {} ━━━━━━━━━━━━━━━━━━━━━━ ● {} [BTN {}]",
+            pin_label, row.component.id,
+            if state.button_pressed { "DOWN" } else { "UP" }
         )),
         other => Line::from(format!(
             " {} ━━━━━━━━━━━━━━━━━━━━━━ ● {}:{}",
@@ -320,7 +318,7 @@ fn wire_row_line<'a>(row: &WireRow<'a>, state: &RunState) -> Line<'static> {
     }
 }
 
-pub fn render_runtime_frame_styled(project: &Project, state: &RunState) -> Vec<Line<'static>> {
+pub fn render_runtime_frame_styled(project: &Project, state: &RunState, spec: &'static BoardSpec) -> Vec<Line<'static>> {
     let mut lines: Vec<Line<'static>> = Vec::new();
 
     let rows = collect_wire_rows(project);
@@ -328,7 +326,7 @@ pub fn render_runtime_frame_styled(project: &Project, state: &RunState) -> Vec<L
         lines.push(Line::from(" (no wires yet — try `add led red --id led1` then `wire pin13 -> led1.a`)".to_string()));
     } else {
         for row in &rows {
-            lines.push(wire_row_line(row, state));
+            lines.push(wire_row_line(row, state, spec));
         }
     }
 
@@ -345,7 +343,7 @@ pub fn render_runtime_frame_styled(project: &Project, state: &RunState) -> Vec<L
     lines
 }
 
-pub fn render_project_styled(project: &Project) -> Vec<Line<'static>> {
+pub fn render_project_styled(project: &Project, spec: &'static BoardSpec) -> Vec<Line<'static>> {
     let mut lines: Vec<Line<'static>> = Vec::new();
 
     let rows = collect_wire_rows(project);
@@ -383,7 +381,7 @@ pub fn render_project_styled(project: &Project) -> Vec<Line<'static>> {
         // idle 路径 → 没有 RunState,用 default 让 LED 走静态 OFF 渲染
         let idle_state = RunState::default();
         for row in &rows {
-            lines.push(wire_row_line(row, &idle_state));
+            lines.push(wire_row_line(row, &idle_state, spec));
         }
     }
 

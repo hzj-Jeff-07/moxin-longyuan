@@ -18,13 +18,61 @@ pub static STM32F405_SPEC: BoardSpec = BoardSpec {
     voltage_mv: 3300,
     artifact_kind: ArtifactKind::Elf,
     pins: &[
-        PinSpec { name: "PA13", aliases: &["pa13"], is_d13_led: true },
+        PinSpec { name: "PA0",  aliases: &["pa0"],  is_d13_led: false },
+        PinSpec { name: "PA1",  aliases: &["pa1"],  is_d13_led: false },
+        PinSpec { name: "PA2",  aliases: &["pa2"],  is_d13_led: false },
+        PinSpec { name: "PA3",  aliases: &["pa3"],  is_d13_led: false },
+        PinSpec { name: "PA4",  aliases: &["pa4"],  is_d13_led: false },
         PinSpec { name: "PA5",  aliases: &["pa5"],  is_d13_led: false },
+        PinSpec { name: "PA6",  aliases: &["pa6"],  is_d13_led: false },
+        PinSpec { name: "PA7",  aliases: &["pa7"],  is_d13_led: false },
+        PinSpec { name: "PA8",  aliases: &["pa8"],  is_d13_led: false },
+        PinSpec { name: "PA9",  aliases: &["pa9"],  is_d13_led: false },
+        PinSpec { name: "PA10", aliases: &["pa10"], is_d13_led: false },
+        PinSpec { name: "PA11", aliases: &["pa11"], is_d13_led: false },
+        PinSpec { name: "PA12", aliases: &["pa12"], is_d13_led: false },
+        PinSpec { name: "PA13", aliases: &["pa13"], is_d13_led: true  },
+        PinSpec { name: "PA14", aliases: &["pa14"], is_d13_led: false },
+        PinSpec { name: "PA15", aliases: &["pa15"], is_d13_led: false },
+        PinSpec { name: "PB0",  aliases: &["pb0"],  is_d13_led: false },
+        PinSpec { name: "PB1",  aliases: &["pb1"],  is_d13_led: false },
+        PinSpec { name: "PB2",  aliases: &["pb2"],  is_d13_led: false },
+        PinSpec { name: "PB3",  aliases: &["pb3"],  is_d13_led: false },
+        PinSpec { name: "PB4",  aliases: &["pb4"],  is_d13_led: false },
+        PinSpec { name: "PB5",  aliases: &["pb5"],  is_d13_led: false },
+        PinSpec { name: "PB6",  aliases: &["pb6"],  is_d13_led: false },
+        PinSpec { name: "PB7",  aliases: &["pb7"],  is_d13_led: false },
+        PinSpec { name: "PB8",  aliases: &["pb8"],  is_d13_led: false },
+        PinSpec { name: "PB9",  aliases: &["pb9"],  is_d13_led: false },
+        PinSpec { name: "PB10", aliases: &["pb10"], is_d13_led: false },
+        PinSpec { name: "PB11", aliases: &["pb11"], is_d13_led: false },
+        PinSpec { name: "PB12", aliases: &["pb12"], is_d13_led: false },
+        PinSpec { name: "PB13", aliases: &["pb13"], is_d13_led: false },
+        PinSpec { name: "PB14", aliases: &["pb14"], is_d13_led: false },
+        PinSpec { name: "PB15", aliases: &["pb15"], is_d13_led: false },
+        PinSpec { name: "PC0",  aliases: &["pc0"],  is_d13_led: false },
+        PinSpec { name: "PC1",  aliases: &["pc1"],  is_d13_led: false },
+        PinSpec { name: "PC2",  aliases: &["pc2"],  is_d13_led: false },
+        PinSpec { name: "PC3",  aliases: &["pc3"],  is_d13_led: false },
+        PinSpec { name: "PC4",  aliases: &["pc4"],  is_d13_led: false },
+        PinSpec { name: "PC5",  aliases: &["pc5"],  is_d13_led: false },
+        PinSpec { name: "PC6",  aliases: &["pc6"],  is_d13_led: false },
+        PinSpec { name: "PC7",  aliases: &["pc7"],  is_d13_led: false },
+        PinSpec { name: "PC8",  aliases: &["pc8"],  is_d13_led: false },
+        PinSpec { name: "PC9",  aliases: &["pc9"],  is_d13_led: false },
+        PinSpec { name: "PC10", aliases: &["pc10"], is_d13_led: false },
+        PinSpec { name: "PC11", aliases: &["pc11"], is_d13_led: false },
+        PinSpec { name: "PC12", aliases: &["pc12"], is_d13_led: false },
+        PinSpec { name: "PC13", aliases: &["pc13"], is_d13_led: false },
+        PinSpec { name: "PC14", aliases: &["pc14"], is_d13_led: false },
+        PinSpec { name: "PC15", aliases: &["pc15"], is_d13_led: false },
         PinSpec { name: "GND",  aliases: &["gnd"],  is_d13_led: false },
         PinSpec { name: "3V3",  aliases: &["3v3", "vcc"], is_d13_led: false },
     ],
     serial_count: 3,
     gpio_count: 51,
+    d13_bridge_port: "GPIO",
+    d13_bridge_bit: 13,
 };
 
 pub const BLINK_C_TEMPLATE: &str = r#"// 由 moxin new --board=stm32 自动生成
@@ -179,7 +227,7 @@ impl super::BoardImpl for Stm32f405 {
             bail!("elf not found: {} — run `build` first", artifact.display());
         }
         let child = spawn_bridge_child(&bridge, &[artifact], root)?;
-        spawn_with_state(child, self.voltage_mv(), Box::new(|port, bit| port == "GPIO" && bit == 13))
+        spawn_with_state(child, self.voltage_mv(), self.spec().make_is_d13())
     }
 }
 

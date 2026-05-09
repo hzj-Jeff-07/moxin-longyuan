@@ -98,9 +98,6 @@ fn parse_board_terminal(t: &str) -> Result<PinRef> {
     bail!("unknown board terminal: {}", t);
 }
 
-pub fn board_info() -> &'static str {
-    "arduino-uno · 16MHz · pins: D0..D13, A0..A5, GND, 5V"
-}
 
 #[cfg(test)]
 mod tests {

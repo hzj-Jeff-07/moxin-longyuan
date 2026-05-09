@@ -71,16 +71,20 @@ impl Inspector for StubInspector {
 
         // 3. Button(当前 demo 没接按钮,看 project.components 有没有 button 类型)
         let has_button = project.components.iter().any(|c| c.kind == "button");
-        let btn_value = if has_button {
-            "UP".to_string()
+        let (btn_value, btn_color) = if has_button {
+            if state.button_pressed {
+                ("DOWN".to_string(), Color::Rgb(255, 200, 40))
+            } else {
+                ("UP".to_string(), Color::Reset)
+            }
         } else {
-            "—".to_string()
+            ("—".to_string(), Color::DarkGray)
         };
         out.push(InspectorLine {
             icon: if has_button { '✓' } else { ' ' },
             label: "Button".to_string(),
             value: btn_value,
-            color: Color::Reset,
+            color: btn_color,
         });
 
         // 4. Loop Time(两次连续 pin event 的 t_us 差)

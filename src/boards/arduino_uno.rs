@@ -15,14 +15,33 @@ pub static ARDUINO_UNO_SPEC: BoardSpec = BoardSpec {
     voltage_mv: 5000,
     artifact_kind: ArtifactKind::Hex,
     pins: &[
-        PinSpec { name: "D13", aliases: &["pin13", "13", "d13"], is_d13_led: true },
-        PinSpec { name: "D12", aliases: &["pin12", "12", "d12"], is_d13_led: false },
+        PinSpec { name: "D0",  aliases: &["pin0",  "0",  "d0"],  is_d13_led: false },
+        PinSpec { name: "D1",  aliases: &["pin1",  "1",  "d1"],  is_d13_led: false },
         PinSpec { name: "D2",  aliases: &["pin2",  "2",  "d2"],  is_d13_led: false },
+        PinSpec { name: "D3",  aliases: &["pin3",  "3",  "d3"],  is_d13_led: false },
+        PinSpec { name: "D4",  aliases: &["pin4",  "4",  "d4"],  is_d13_led: false },
+        PinSpec { name: "D5",  aliases: &["pin5",  "5",  "d5"],  is_d13_led: false },
+        PinSpec { name: "D6",  aliases: &["pin6",  "6",  "d6"],  is_d13_led: false },
+        PinSpec { name: "D7",  aliases: &["pin7",  "7",  "d7"],  is_d13_led: false },
+        PinSpec { name: "D8",  aliases: &["pin8",  "8",  "d8"],  is_d13_led: false },
+        PinSpec { name: "D9",  aliases: &["pin9",  "9",  "d9"],  is_d13_led: false },
+        PinSpec { name: "D10", aliases: &["pin10", "10", "d10"], is_d13_led: false },
+        PinSpec { name: "D11", aliases: &["pin11", "11", "d11"], is_d13_led: false },
+        PinSpec { name: "D12", aliases: &["pin12", "12", "d12"], is_d13_led: false },
+        PinSpec { name: "D13", aliases: &["pin13", "13", "d13"], is_d13_led: true  },
+        PinSpec { name: "A0",  aliases: &["a0"],                 is_d13_led: false },
+        PinSpec { name: "A1",  aliases: &["a1"],                 is_d13_led: false },
+        PinSpec { name: "A2",  aliases: &["a2"],                 is_d13_led: false },
+        PinSpec { name: "A3",  aliases: &["a3"],                 is_d13_led: false },
+        PinSpec { name: "A4",  aliases: &["a4"],                 is_d13_led: false },
+        PinSpec { name: "A5",  aliases: &["a5"],                 is_d13_led: false },
         PinSpec { name: "GND", aliases: &["gnd"],                is_d13_led: false },
         PinSpec { name: "5V",  aliases: &["5v", "vcc"],          is_d13_led: false },
     ],
     serial_count: 1,
     gpio_count: 14,
+    d13_bridge_port: "B",
+    d13_bridge_bit: 5,
 };
 
 pub const BLINK_INO_TEMPLATE: &str = r#"// 由 moxin new 自动生成
@@ -112,7 +131,7 @@ impl super::BoardImpl for ArduinoUno {
             bail!("hex not found: {} — run `build` first", artifact.display());
         }
         let child = spawn_bridge_child(&bridge, &[artifact, Path::new("atmega328p"), Path::new("16000000")], root)?;
-        spawn_with_state(child, self.voltage_mv(), Box::new(|port, bit| port == "B" && bit == 5))
+        spawn_with_state(child, self.voltage_mv(), self.spec().make_is_d13())
     }
 }
 
@@ -121,8 +140,10 @@ fn ihex_program_size(path: &Path) -> Result<u64> {
     let mut total: u64 = 0;
     for line in text.lines() {
         if !line.starts_with(':') || line.len() < 11 { continue; }
-        let count = u8::from_str_radix(&line[1..3], 16).unwrap_or(0);
-        let rtype = u8::from_str_radix(&line[7..9], 16).unwrap_or(0xFF);
+        let count = u8::from_str_radix(&line[1..3], 16)
+            .with_context(|| format!("invalid ihex byte count in line: {}", line))?;
+        let rtype = u8::from_str_radix(&line[7..9], 16)
+            .with_context(|| format!("invalid ihex record type in line: {}", line))?;
         if rtype == 0x00 { total += count as u64; }
     }
     Ok(total)

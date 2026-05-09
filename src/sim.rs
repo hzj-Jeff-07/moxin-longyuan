@@ -30,6 +30,7 @@ pub struct RunState {
     pub serial_lines: VecDeque<(u64, String)>,
     pub bridge_exited: bool,
     pub bridge_exit_reason: Option<String>,
+    pub button_pressed: bool,
 }
 
 impl Default for RunState {
@@ -47,6 +48,7 @@ impl Default for RunState {
             serial_lines: VecDeque::with_capacity(SERIAL_BUFFER_CAP),
             bridge_exited: false,
             bridge_exit_reason: None,
+            button_pressed: false,
         }
     }
 }
@@ -72,6 +74,8 @@ enum BridgeEvent {
     Serial { t_us: u64, line: String },
     #[serde(rename = "exit")]
     Exit { state: i32 },
+    #[serde(rename = "button")]
+    Button { _t_us: u64, pressed: bool },
 }
 
 pub struct RunningSim {
@@ -180,6 +184,9 @@ fn apply_event(
         BridgeEvent::Exit { state: exit_state } => {
             s.bridge_exited = true;
             s.bridge_exit_reason = Some(format!("cpu state {}", exit_state));
+        }
+        BridgeEvent::Button { pressed, .. } => {
+            s.button_pressed = pressed;
         }
     }
 }

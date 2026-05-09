@@ -170,6 +170,7 @@ fn build_snapshot(
     last_message: &Option<(String, Instant, Severity)>,
 ) -> FrameSnapshot {
     let project = &shell.project;
+    let spec = shell.board.spec();
     let serial_supported = true; // all boards support serial monitor
     let inspector = StubInspector;
 
@@ -178,7 +179,7 @@ fn build_snapshot(
             Some(sim) => {
                 let Ok(st) = sim.state.lock() else {
                     let title = format!("{} · {}", project.project.name, project.project.board);
-                    let board_lines = crate::render::render_project_styled(project);
+                    let board_lines = crate::render::render_project_styled(project, spec);
                     let idle = RunState::default();
                     let (insp_lines, insp_status) = inspector.inspect(project, &idle);
                     return FrameSnapshot { title, board_lines, serial_lines: vec![], inspector_lines: insp_lines, inspector_status: insp_status, serial_supported, status_text: "(state unavailable)", status_color: Color::DarkGray };
@@ -189,7 +190,7 @@ fn build_snapshot(
                     project.project.board,
                     st.started.elapsed().as_secs_f64()
                 );
-                let board_lines = crate::render::render_runtime_frame_styled(project, &st);
+                let board_lines = crate::render::render_runtime_frame_styled(project, &st, shell.board.spec());
                 let serial: Vec<String> =
                     st.serial_lines.iter().map(|(_, s)| s.clone()).collect();
                 let (insp_lines, insp_status) = inspector.inspect(project, &st);
@@ -210,7 +211,7 @@ fn build_snapshot(
                     "{} · {}",
                     project.project.name, project.project.board
                 );
-                let board_lines = crate::render::render_project_styled(project);
+                let board_lines = crate::render::render_project_styled(project, spec);
                 // idle 状态用 default RunState 喂 inspector,保持渲染对齐
                 let idle = RunState::default();
                 let (insp_lines, insp_status) = inspector.inspect(project, &idle);

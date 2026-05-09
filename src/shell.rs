@@ -1,4 +1,4 @@
-use crate::board::{board_info, PinRef};
+use crate::board::PinRef;
 use crate::boards::{BoardImpl, board_from_str};
 use crate::project::{Component, Project, Wire};
 use crate::render::{render_project, render_runtime_frame};
@@ -98,7 +98,7 @@ pub struct Shell {
     root: PathBuf,
     pub project: Project,
     pub running: Option<RunningSim>,
-    board: Box<dyn BoardImpl>,
+    pub board: Box<dyn BoardImpl>,
 }
 
 impl Drop for Shell {
@@ -133,7 +133,7 @@ impl Shell {
 
     fn cmd_board(&self, rest: &[&str]) -> Result<String> {
         match rest.first().copied() {
-            Some("info") | None => Ok(board_info().to_string()),
+            Some("info") | None => Ok(self.board.spec().board_info_string()),
             Some(other) => bail!("unknown board subcommand: {}", other),
         }
     }
@@ -196,6 +196,13 @@ impl Shell {
             if !self.project.components.iter().any(|c| &c.id == id) {
                 bail!("unknown component id: {}", id);
             }
+        }
+        let spec = self.board.spec();
+        if !spec.pin_ref_valid(&from_ref) {
+            bail!("unknown pin {} on {} — run `board info` for valid pins", from_ref.render(), spec.board_id);
+        }
+        if !spec.pin_ref_valid(&to_ref) {
+            bail!("unknown pin {} on {} — run `board info` for valid pins", to_ref.render(), spec.board_id);
         }
         let from_canon = from_ref.render_canonical();
         let to_canon = to_ref.render_canonical();
@@ -325,5 +332,35 @@ mod tests {
         shell.dispatch("add led red --id led1").expect("add led prerequisite");
         let msg = shell.dispatch("wire pin13 -> led1.a").expect("wire should succeed");
         assert!(msg.contains("✓ wired"), "got: {}", msg);
+    }
+
+    #[test]
+    fn wire_invalid_pin_returns_error() {
+        let tmp = TempDir::new().expect("tempdir");
+        let mut shell = make_shell(&tmp);
+        shell.dispatch("add led red --id led1").unwrap();
+        // D99 is rejected by PinRef::parse (parser enforces D0..D13 range)
+        let res = shell.dispatch("wire D99 -> led1.a");
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn wire_unknown_port_pin_returns_error() {
+        let tmp = TempDir::new().expect("tempdir");
+        let mut shell = make_shell(&tmp);
+        shell.dispatch("add led red --id led1").unwrap();
+        // PZ99 parses as BoardPort but is not in arduino-uno spec
+        let res = shell.dispatch("wire PZ99 -> led1.a");
+        assert!(res.is_err());
+        assert!(res.unwrap_err().to_string().contains("unknown pin"));
+    }
+
+    #[test]
+    fn wire_valid_d7_succeeds() {
+        let tmp = TempDir::new().expect("tempdir");
+        let mut shell = make_shell(&tmp);
+        shell.dispatch("add led red --id led1").unwrap();
+        let res = shell.dispatch("wire D7 -> led1.a");
+        assert!(res.is_ok(), "D7 should be valid, got: {:?}", res);
     }
 }
