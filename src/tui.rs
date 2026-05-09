@@ -176,7 +176,13 @@ fn build_snapshot(
     let (title, board_lines, serial_lines, inspector_lines, inspector_status, status_text, status_color) =
         match shell.running.as_ref() {
             Some(sim) => {
-                let st = sim.state.lock().unwrap();
+                let Ok(st) = sim.state.lock() else {
+                    let title = format!("{} · {}", project.project.name, project.project.board);
+                    let board_lines = crate::render::render_project_styled(project);
+                    let idle = RunState::default();
+                    let (insp_lines, insp_status) = inspector.inspect(project, &idle);
+                    return FrameSnapshot { title, board_lines, serial_lines: vec![], inspector_lines: insp_lines, inspector_status: insp_status, serial_supported, status_text: "(state unavailable)", status_color: Color::DarkGray };
+                };
                 let title = format!(
                     "{} · {} · t={:06.3}s",
                     project.project.name,

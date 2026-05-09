@@ -1,4 +1,4 @@
-use crate::project::Project;
+use crate::project::{CodeMeta, Project, ProjectMeta, SCHEMA_VERSION};
 use crate::sim::{RunningSim, find_bridge_avr, spawn_bridge_child, spawn_with_state};
 use anyhow::{Context, Result, bail};
 use std::path::{Path, PathBuf};
@@ -6,11 +6,37 @@ use std::process::Command;
 
 const FQBN: &str = "arduino:avr:uno";
 
+pub const BLINK_INO_TEMPLATE: &str = r#"// 由 moxin new 自动生成
+// 经典 blink:D13 每 1000 ms 翻转一次
+const int LED_PIN = 13;
+
+void setup() {
+  pinMode(LED_PIN, OUTPUT);
+}
+
+void loop() {
+  digitalWrite(LED_PIN, HIGH);
+  delay(1000);
+  digitalWrite(LED_PIN, LOW);
+  delay(1000);
+}
+"#;
+
 pub struct ArduinoUno;
 
 impl super::BoardImpl for ArduinoUno {
     fn board_name(&self) -> &'static str { "arduino-uno" }
     fn voltage_mv(&self) -> u32 { 5000 }
+    fn artifact_ext(&self) -> &'static str { "hex" }
+    fn scaffold_project(&self, name: &str) -> Project {
+        Project {
+            project: ProjectMeta { name: name.to_string(), board: "arduino-uno".to_string(), version: SCHEMA_VERSION.to_string() },
+            components: vec![],
+            wires: vec![],
+            code: Some(CodeMeta { src: "src/main.ino".to_string(), flags: vec![] }),
+        }
+    }
+    fn source_template(&self) -> &'static str { BLINK_INO_TEMPLATE }
 
     fn build(&self, root: &Path) -> Result<(PathBuf, String)> {
         let project = Project::load(&root.join("moxin.toml"))?;

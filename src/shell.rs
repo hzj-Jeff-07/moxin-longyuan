@@ -209,7 +209,9 @@ impl Shell {
             Some("project") => Ok(render_project(&self.project)),
             None => {
                 if let Some(sim) = self.running.as_ref() {
-                    let st = sim.state.lock().unwrap();
+                    let Ok(st) = sim.state.lock() else {
+                        return Ok("(state unavailable)".to_string());
+                    };
                     Ok(render_runtime_frame(&self.project, &st))
                 } else {
                     Ok(format!("{}\n(simulator not running — try `run`)", render_project(&self.project)))
@@ -240,7 +242,7 @@ impl Shell {
         if let Some(s) = &mut self.running {
             if s.is_alive() { bail!("simulator already running (use `stop` first)"); }
         }
-        let ext = if self.project.project.board == "stm32" { "elf" } else { "hex" };
+        let ext = self.board.artifact_ext();
         let artifact = self.root.join("build")
             .join(format!("{}.{}", self.project.project.name, ext));
         if !artifact.exists() {
