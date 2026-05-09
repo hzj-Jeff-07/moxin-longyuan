@@ -1,5 +1,5 @@
 use crate::board::PinRef;
-use crate::cmd_run::{LedLevel, RunState};
+use crate::sim::{LedLevel, RunState};
 use crate::project::{Component, Project};
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};

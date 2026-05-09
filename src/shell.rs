@@ -1,10 +1,8 @@
 use crate::board::{board_info, PinRef};
-use crate::cmd_build::cmd_build;
-use crate::cmd_build_stm32::cmd_build_stm32;
-use crate::cmd_run::{cmd_run, RunningSim};
-use crate::cmd_run_stm32::cmd_run_stm32;
+use crate::boards::{BoardImpl, board_from_str};
 use crate::project::{Component, Project, Wire};
 use crate::render::{render_project, render_runtime_frame};
+use crate::sim::RunningSim;
 use anyhow::{Context, Result, anyhow, bail};
 use rustyline::error::ReadlineError;
 use std::io::{self, BufRead, IsTerminal, Write};
@@ -27,11 +25,8 @@ pub fn cmd_shell(start_dir: &Path, no_tui: bool) -> Result<()> {
         project.project.board, summary
     );
 
-    let mut shell = Shell {
-        root,
-        project,
-        running: None,
-    };
+    let board = board_from_str(&project.project.board)?;
+    let mut shell = Shell { root, project, running: None, board };
 
     let is_tty = io::stdin().is_terminal();
     if is_tty && !no_tui {
@@ -53,23 +48,13 @@ fn repl_interactive(shell: &mut Shell) -> Result<()> {
     loop {
         let line = match rl.readline("moxin> ") {
             Ok(l) => l,
-            Err(ReadlineError::Eof) | Err(ReadlineError::Interrupted) => {
-                println!();
-                break;
-            }
-            Err(e) => {
-                eprintln!("readline error: {}", e);
-                break;
-            }
+            Err(ReadlineError::Eof) | Err(ReadlineError::Interrupted) => { println!(); break; }
+            Err(e) => { eprintln!("readline error: {}", e); break; }
         };
         let trimmed = line.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
+        if trimmed.is_empty() { continue; }
         let _ = rl.add_history_entry(trimmed);
-        if trimmed == "exit" || trimmed == "quit" {
-            break;
-        }
+        if trimmed == "exit" || trimmed == "quit" { break; }
         match shell.dispatch(trimmed) {
             Ok(msg) if !msg.is_empty() => println!("{}", msg),
             Ok(_) => {}
@@ -95,15 +80,10 @@ fn repl_piped(shell: &mut Shell) -> Result<()> {
             Err(_) => break,
         }
         let trimmed = buf.trim().to_string();
-        if trimmed.is_empty() {
-            continue;
-        }
-        // 把命令回显一遍,便于从 transcript 中看清
+        if trimmed.is_empty() { continue; }
         writeln!(out, "{}", trimmed)?;
         out.flush()?;
-        if trimmed == "exit" || trimmed == "quit" {
-            break;
-        }
+        if trimmed == "exit" || trimmed == "quit" { break; }
         match shell.dispatch(&trimmed) {
             Ok(msg) if !msg.is_empty() => writeln!(out, "{}", msg)?,
             Ok(_) => {}
@@ -118,10 +98,9 @@ pub struct Shell {
     root: PathBuf,
     pub project: Project,
     pub running: Option<RunningSim>,
+    board: Box<dyn BoardImpl>,
 }
 
-/// Panic 安全兜底:正常退出路径已经在 `cmd_shell` 末尾 `sim.stop()` 早释放,
-/// Drop 只在 unwind / 异常返回时兜底,避免 sim 子进程变孤儿。
 impl Drop for Shell {
     fn drop(&mut self) {
         if let Some(sim) = self.running.take() {
@@ -132,7 +111,6 @@ impl Drop for Shell {
 
 impl Shell {
     pub fn dispatch(&mut self, line: &str) -> Result<String> {
-        // 特殊处理 `wire <from> -> <to>`,因为参数里有 `->`
         if let Some(rest) = line.strip_prefix("wire") {
             return self.cmd_wire(rest.trim());
         }
@@ -160,9 +138,6 @@ impl Shell {
         }
     }
 
-    /// 添加元件: add <type> [args...] --id <id>
-    /// 例: add led red --id led1
-    /// 例: add button --id btn1
     fn cmd_add(&mut self, args: &[&str]) -> Result<String> {
         if args.is_empty() {
             bail!("usage: add <type> [color] --id <id>");
@@ -175,9 +150,7 @@ impl Shell {
             let a = args[i];
             if a == "--id" {
                 i += 1;
-                if i >= args.len() {
-                    bail!("--id requires a value");
-                }
+                if i >= args.len() { bail!("--id requires a value"); }
                 id = Some(args[i].to_string());
             } else if let Some(v) = a.strip_prefix("--id=") {
                 id = Some(v.to_string());
@@ -191,19 +164,9 @@ impl Shell {
         let comp = match kind.as_str() {
             "led" => {
                 let color = positional.first().cloned().unwrap_or_else(|| "red".into());
-                Component {
-                    id: id.clone(),
-                    kind: "led".into(),
-                    color: Some(color.clone()),
-                    pos: None,
-                }
+                Component { id: id.clone(), kind: "led".into(), color: Some(color), pos: None }
             }
-            "button" | "btn" => Component {
-                id: id.clone(),
-                kind: "button".into(),
-                color: None,
-                pos: None,
-            },
+            "button" | "btn" => Component { id: id.clone(), kind: "button".into(), color: None, pos: None },
             other => bail!("unknown component type: {}", other),
         };
 
@@ -217,7 +180,6 @@ impl Shell {
         Ok(format!("✓ added {}", display))
     }
 
-    /// 连线: wire <from> -> <to>
     fn cmd_wire(&mut self, rest: &str) -> Result<String> {
         let parts: Vec<&str> = rest.split("->").map(|s| s.trim()).collect();
         if parts.len() != 2 || parts[0].is_empty() || parts[1].is_empty() {
@@ -225,7 +187,6 @@ impl Shell {
         }
         let from_ref = PinRef::parse(parts[0])?;
         let to_ref = PinRef::parse(parts[1])?;
-        // 验证元件 id 存在
         if let PinRef::Component { id, .. } = &from_ref {
             if !self.project.components.iter().any(|c| &c.id == id) {
                 bail!("unknown component id: {}", id);
@@ -238,10 +199,7 @@ impl Shell {
         }
         let from_canon = from_ref.render_canonical();
         let to_canon = to_ref.render_canonical();
-        self.project.add_wire(Wire {
-            from: from_canon.clone(),
-            to: to_canon.clone(),
-        });
+        self.project.add_wire(Wire { from: from_canon.clone(), to: to_canon.clone() });
         self.save_project()?;
         Ok(format!("✓ wired {} -> {}", from_canon, to_canon))
     }
@@ -254,10 +212,7 @@ impl Shell {
                     let st = sim.state.lock().unwrap();
                     Ok(render_runtime_frame(&self.project, &st))
                 } else {
-                    Ok(format!(
-                        "{}\n(simulator not running — try `run`)",
-                        render_project(&self.project)
-                    ))
+                    Ok(format!("{}\n(simulator not running — try `run`)", render_project(&self.project)))
                 }
             }
             Some(other) => bail!("unknown show subcommand: {}", other),
@@ -267,73 +222,33 @@ impl Shell {
     fn cmd_edit(&self) -> Result<String> {
         let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vi".to_string());
         let target = self.root.join(
-            self.project
-                .code
-                .as_ref()
-                .map(|c| c.src.clone())
+            self.project.code.as_ref().map(|c| c.src.clone())
                 .unwrap_or_else(|| "src/main.ino".into()),
         );
-        let status = Command::new(&editor)
-            .arg(&target)
-            .status()
+        let status = Command::new(&editor).arg(&target).status()
             .with_context(|| format!("spawn $EDITOR ({})", editor))?;
-        if !status.success() {
-            bail!("editor exited non-zero");
-        }
+        if !status.success() { bail!("editor exited non-zero"); }
         Ok(String::new())
     }
 
     fn cmd_build(&self) -> Result<String> {
-        match self.project.project.board.as_str() {
-            "arduino-uno" => {
-                let (_hex, msg) = cmd_build(&self.root)?;
-                Ok(msg)
-            }
-            "stm32" => {
-                let (_elf, msg) = cmd_build_stm32(&self.root)?;
-                Ok(msg)
-            }
-            other => bail!(
-                "unsupported board `{}` in moxin.toml — supported: arduino-uno, stm32",
-                other
-            ),
-        }
+        let (_artifact, msg) = self.board.build(&self.root)?;
+        Ok(msg)
     }
 
     fn cmd_run_sim(&mut self) -> Result<String> {
         if let Some(s) = &mut self.running {
-            if s.is_alive() {
-                bail!("simulator already running (use `stop` first)");
-            }
+            if s.is_alive() { bail!("simulator already running (use `stop` first)"); }
         }
-        let (sim, label) = match self.project.project.board.as_str() {
-            "arduino-uno" => {
-                let hex = self
-                    .root
-                    .join("build")
-                    .join(format!("{}.hex", self.project.project.name));
-                if !hex.exists() {
-                    bail!("hex not found at {} — run `build` first", hex.display());
-                }
-                (cmd_run(&self.root, &hex)?, "simavr")
-            }
-            "stm32" => {
-                let elf = self
-                    .root
-                    .join("build")
-                    .join(format!("{}.elf", self.project.project.name));
-                if !elf.exists() {
-                    bail!("elf not found at {} — run `build` first", elf.display());
-                }
-                (cmd_run_stm32(&self.root, &elf)?, "qemu/stm32")
-            }
-            other => bail!(
-                "unsupported board `{}` — supported: arduino-uno, stm32",
-                other
-            ),
-        };
+        let ext = if self.project.project.board == "stm32" { "elf" } else { "hex" };
+        let artifact = self.root.join("build")
+            .join(format!("{}.{}", self.project.project.name, ext));
+        if !artifact.exists() {
+            bail!("artifact not found at {} — run `build` first", artifact.display());
+        }
+        let sim = self.board.spawn_sim(&self.root, &artifact)?;
         self.running = Some(sim);
-        Ok(format!("✓ simulator started ({})", label))
+        Ok(format!("✓ simulator started ({})", self.board.board_name()))
     }
 
     fn cmd_stop(&mut self) -> Result<String> {
@@ -345,13 +260,8 @@ impl Shell {
         }
     }
 
-    /// `sleep <ms>` — 仅用于自动化测试,在剧本里观察 LED 翻转
     fn cmd_sleep(&self, args: &[&str]) -> Result<String> {
-        let ms: u64 = args
-            .first()
-            .copied()
-            .unwrap_or("1000")
-            .parse()
+        let ms: u64 = args.first().copied().unwrap_or("1000").parse()
             .map_err(|_| anyhow!("usage: sleep <milliseconds>"))?;
         std::thread::sleep(std::time::Duration::from_millis(ms));
         Ok(String::new())
@@ -383,27 +293,18 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
 
-    /// 构造一个**离线** Shell:tempdir 里建好 moxin.toml,running=None,
-    /// 不开 simavr / arduino-cli,只测纯 dispatch 行为
     fn make_shell(tmp: &TempDir) -> Shell {
         let project = Project::new_blink("test");
-        project
-            .save(&tmp.path().join("moxin.toml"))
-            .expect("save project");
-        Shell {
-            root: tmp.path().to_path_buf(),
-            project,
-            running: None,
-        }
+        project.save(&tmp.path().join("moxin.toml")).expect("save project");
+        let board = board_from_str(&project.project.board).expect("board_from_str");
+        Shell { root: tmp.path().to_path_buf(), project, running: None, board }
     }
 
     #[test]
     fn test_dispatch_add_led_returns_success() {
         let tmp = TempDir::new().expect("tempdir");
         let mut shell = make_shell(&tmp);
-        let msg = shell
-            .dispatch("add led red --id led1")
-            .expect("add led should succeed");
+        let msg = shell.dispatch("add led red --id led1").expect("add led should succeed");
         assert!(msg.contains("✓ added led1"), "got: {}", msg);
     }
 
@@ -419,12 +320,8 @@ mod tests {
     fn test_dispatch_wire_after_add_returns_success() {
         let tmp = TempDir::new().expect("tempdir");
         let mut shell = make_shell(&tmp);
-        shell
-            .dispatch("add led red --id led1")
-            .expect("add led prerequisite");
-        let msg = shell
-            .dispatch("wire pin13 -> led1.a")
-            .expect("wire should succeed");
+        shell.dispatch("add led red --id led1").expect("add led prerequisite");
+        let msg = shell.dispatch("wire pin13 -> led1.a").expect("wire should succeed");
         assert!(msg.contains("✓ wired"), "got: {}", msg);
     }
 }
