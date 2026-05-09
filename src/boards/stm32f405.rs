@@ -1,3 +1,4 @@
+use crate::boards::spec::{ArtifactKind, BoardSpec, PinSpec};
 use crate::project::{CodeMeta, Project, ProjectMeta, SCHEMA_VERSION};
 use crate::sim::{RunningSim, find_bridge_stm32, spawn_bridge_child, spawn_with_state};
 use anyhow::{Context, Result, bail};
@@ -8,6 +9,23 @@ const TARGET_FLAGS: &[&str] = &[
     "-mthumb", "-mcpu=cortex-m4", "-mfloat-abi=soft", "-Os",
     "-ffreestanding", "-nostartfiles", "-nostdlib", "-Wall", "-Wextra",
 ];
+
+pub static STM32F405_SPEC: BoardSpec = BoardSpec {
+    board_id: "stm32",
+    display_name: "STM32F405 (netduinoplus2)",
+    mcu: "STM32F405RG",
+    clock_hz: 16_000_000,
+    voltage_mv: 3300,
+    artifact_kind: ArtifactKind::Elf,
+    pins: &[
+        PinSpec { name: "PA13", aliases: &["pa13"], is_d13_led: true },
+        PinSpec { name: "PA5",  aliases: &["pa5"],  is_d13_led: false },
+        PinSpec { name: "GND",  aliases: &["gnd"],  is_d13_led: false },
+        PinSpec { name: "3V3",  aliases: &["3v3", "vcc"], is_d13_led: false },
+    ],
+    serial_count: 3,
+    gpio_count: 51,
+};
 
 pub const BLINK_C_TEMPLATE: &str = r#"// 由 moxin new --board=stm32 自动生成
 // STM32F405 / netduinoplus2 blink:PA13 每 1000 ms 翻转,通过 USART2 打印
@@ -98,9 +116,7 @@ int main(void) {
 pub struct Stm32f405;
 
 impl super::BoardImpl for Stm32f405 {
-    fn board_name(&self) -> &'static str { "stm32" }
-    fn voltage_mv(&self) -> u32 { 3300 }
-    fn artifact_ext(&self) -> &'static str { "elf" }
+    fn spec(&self) -> &'static super::spec::BoardSpec { &STM32F405_SPEC }
     fn scaffold_project(&self, name: &str) -> Project {
         Project {
             project: ProjectMeta { name: name.to_string(), board: "stm32".to_string(), version: SCHEMA_VERSION.to_string() },
