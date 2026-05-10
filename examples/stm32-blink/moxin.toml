@@ -1,0 +1,16 @@
+[project]
+name = "stm32-blink"
+board = "stm32f405"
+version = "0.2"
+
+[[component]]
+id = "led1"
+type = "led"
+color = "green"
+
+[[wire]]
+from = "board.D13"
+to = "led1.a"
+
+[code]
+src = "main.c"

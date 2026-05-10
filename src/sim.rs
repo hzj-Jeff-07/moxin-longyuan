@@ -89,9 +89,14 @@ pub struct RunningSim {
 impl RunningSim {
     pub fn stop(mut self) {
         let _ = self.child.kill();
-        let _ = self.child.wait();
-        if let Some(h) = self.reader_handle.take() { let _ = h.join(); }
-        if let Some(h) = self.stderr_reader_handle.take() { let _ = h.join(); }
+        let reader = self.reader_handle.take();
+        let stderr = self.stderr_reader_handle.take();
+        let mut child = self.child;
+        std::thread::spawn(move || {
+            let _ = child.wait();
+            if let Some(h) = reader { let _ = h.join(); }
+            if let Some(h) = stderr { let _ = h.join(); }
+        });
     }
 
     pub fn is_alive(&mut self) -> bool {
@@ -225,17 +230,37 @@ pub fn find_bridge_avr() -> Result<PathBuf> {
     bail!("simavr bridge not found — set $MOXIN_BRIDGE env var or place moxin-simavr-bridge next to the moxin binary")
 }
 
+const BRIDGE_STM32_SRC: &str = include_str!("../bridge/stm32/bridge-stm32.c");
+
 pub fn find_bridge_stm32() -> Result<PathBuf> {
     if let Ok(p) = std::env::var("MOXIN_BRIDGE_STM32") {
         return Ok(PathBuf::from(p));
     }
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            let candidate = dir.join("bridge-stm32");
-            if candidate.exists() { return Ok(candidate); }
+    let cache_dir = dirs_cache_dir()?;
+    let bridge = cache_dir.join("bridge-stm32");
+    if !bridge.exists() {
+        let src = cache_dir.join("bridge-stm32.c");
+        std::fs::write(&src, BRIDGE_STM32_SRC)?;
+        let out = Command::new("cc")
+            .args(["-O2", "-Wall", "-std=c11", "-D_POSIX_C_SOURCE=200809L"])
+            .arg("-o").arg(&bridge)
+            .arg(&src)
+            .output()
+            .map_err(|e| anyhow::anyhow!("cc not found: {}", e))?;
+        if !out.status.success() {
+            bail!("bridge-stm32 compile failed:\n{}", String::from_utf8_lossy(&out.stderr));
         }
     }
-    bail!("stm32 bridge not found — set $MOXIN_BRIDGE_STM32 env var or place bridge-stm32 next to the moxin binary")
+    Ok(bridge)
+}
+
+fn dirs_cache_dir() -> Result<PathBuf> {
+    let base = std::env::var("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| std::env::temp_dir());
+    let dir = base.join(".moxin");
+    std::fs::create_dir_all(&dir)?;
+    Ok(dir)
 }
 
 /// Spawn a child process with piped stdio, ready for spawn_with_state.

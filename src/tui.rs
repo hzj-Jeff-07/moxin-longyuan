@@ -439,6 +439,10 @@ pub fn run(shell: &mut crate::shell::Shell) -> Result<()> {
                                     ));
                                 }
                             }
+                            // flush stale events accumulated during blocking dispatch (e.g. stop)
+                            while event::poll(Duration::from_millis(0)).unwrap_or(false) {
+                                let _ = event::read();
+                            }
                         }
                     }
                     KeyCode::Backspace => input.backspace(),

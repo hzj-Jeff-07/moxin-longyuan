@@ -240,15 +240,16 @@ fn ensure_arm_gcc() -> Result<()> {
     Ok(())
 }
 
+const STARTUP_S: &str = include_str!("../../examples/stm32-blink/support/startup.s");
+const LINKER_LD: &str = include_str!("../../examples/stm32-blink/support/linker.ld");
+
 fn find_support_dir() -> Result<PathBuf> {
     if let Ok(p) = std::env::var("MOXIN_STM32_SUPPORT") {
         return Ok(PathBuf::from(p));
     }
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            let candidate = dir.join("examples").join("stm32-blink").join("support");
-            if candidate.exists() { return Ok(candidate); }
-        }
-    }
-    bail!("stm32 support files not found — set $MOXIN_STM32_SUPPORT env var or place support/ next to the moxin binary")
+    let dir = std::env::temp_dir().join("moxin-stm32-support");
+    std::fs::create_dir_all(&dir)?;
+    std::fs::write(dir.join("startup.s"), STARTUP_S)?;
+    std::fs::write(dir.join("linker.ld"), LINKER_LD)?;
+    Ok(dir)
 }
