@@ -19,6 +19,10 @@ pub fn cmd_install() -> Result<()> {
     let exe_name = if cfg!(windows) { "moxin.exe" } else { "moxin" };
     let dest = dest_dir.join(exe_name);
 
+    // On Windows, overwriting a running exe fails; remove first.
+    if dest.exists() {
+        std::fs::remove_file(&dest)?;
+    }
     std::fs::copy(&src, &dest)?;
     println!("✓ installed to {}", dest.display());
     println!("  open a new terminal and run: moxin --help");
