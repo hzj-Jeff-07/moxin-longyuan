@@ -1,0 +1,33 @@
+[project]
+name = "led-control"
+board = "arduino-uno"
+version = "0.2"
+
+[[component]]
+id = "led_r"
+type = "led"
+color = "red"
+
+[[component]]
+id = "led_g"
+type = "led"
+color = "green"
+
+[[component]]
+id = "btn1"
+type = "button"
+
+[[wire]]
+from = "board.D13"
+to = "led_r.a"
+
+[[wire]]
+from = "board.D12"
+to = "led_g.a"
+
+[[wire]]
+from = "board.D2"
+to = "btn1.a"
+
+[code]
+src = "src/main.ino"
