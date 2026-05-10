@@ -229,7 +229,9 @@ impl Shell {
     }
 
     fn cmd_edit(&self) -> Result<String> {
-        let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vi".to_string());
+        let editor = std::env::var("EDITOR").unwrap_or_else(|_| {
+            if cfg!(windows) { "notepad".to_string() } else { "vi".to_string() }
+        });
         let target = self.root.join(
             self.project.code.as_ref().map(|c| c.src.clone())
                 .unwrap_or_else(|| "src/main.ino".into()),

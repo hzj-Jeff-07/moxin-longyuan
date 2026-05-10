@@ -455,15 +455,17 @@ pub fn run(shell: &mut crate::shell::Shell) -> Result<()> {
                             input.clear();
                         } else if !ctrl && !alt {
                             // If simulator running and input bar is empty, inject char as serial RX
-                            if input.buffer.is_empty() {
-                                if let Some(sim) = shell.running.as_mut() {
-                                    if let Some(stdin) = sim.stdin.as_mut() {
-                                        use std::io::Write;
-                                        let _ = stdin.write_all(&[c as u8]);
-                                    }
-                                }
+                            // and do NOT echo into the input buffer.
+                            let injected = input.buffer.is_empty() && shell.running.as_mut()
+                                .and_then(|sim| sim.stdin.as_mut())
+                                .map(|stdin| {
+                                    use std::io::Write;
+                                    stdin.write_all(&[c as u8]).is_ok()
+                                })
+                                .unwrap_or(false);
+                            if !injected {
+                                input.insert_char(c);
                             }
-                            input.insert_char(c);
                         }
                     }
                     _ => {}

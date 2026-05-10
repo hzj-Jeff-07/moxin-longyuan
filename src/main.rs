@@ -1,5 +1,7 @@
 mod board;
 mod boards;
+mod cmd_doctor;
+mod cmd_install;
 mod cmd_new;
 mod inspector;
 mod project;
@@ -35,6 +37,10 @@ enum Cmd {
     Build,
     /// 启动模拟器
     Run,
+    /// 检查外部依赖是否安装
+    Doctor,
+    /// 将 moxin 安装到 PATH
+    Install,
 }
 
 fn main() -> Result<()> {
@@ -54,6 +60,8 @@ fn main() -> Result<()> {
             if !msg.is_empty() { println!("{}", msg); }
             Ok(())
         }
+        Cmd::Doctor => cmd_doctor::cmd_doctor(),
+        Cmd::Install => cmd_install::cmd_install(),
         Cmd::Run => {
             let cwd = std::env::current_dir()?;
             let root = project::Project::find_project_root(&cwd)?;
