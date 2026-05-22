@@ -75,7 +75,7 @@ enum BridgeEvent {
     #[serde(rename = "exit")]
     Exit { state: i32 },
     #[serde(rename = "button")]
-    Button { _t_us: u64, pressed: bool },
+    Button { t_us: u64, pressed: bool },
 }
 
 pub struct RunningSim {
@@ -190,7 +190,8 @@ fn apply_event(
             s.bridge_exited = true;
             s.bridge_exit_reason = Some(format!("cpu state {}", exit_state));
         }
-        BridgeEvent::Button { pressed, .. } => {
+        BridgeEvent::Button { t_us, pressed } => {
+            s.last_event_t_us = t_us;
             s.button_pressed = pressed;
         }
     }
@@ -293,5 +294,32 @@ mod tests {
         let p = find_bridge_stm32().unwrap();
         assert_eq!(p, PathBuf::from("/tmp/fake-stm32-bridge"));
         std::env::remove_var("MOXIN_BRIDGE_STM32");
+    }
+
+    #[test]
+    fn apply_event_button_updates_state() {
+        let state = Arc::new(Mutex::new(RunState::default()));
+        let event_json = r#"{"event":"button","t_us":12345,"pressed":true}"#;
+        let ev: BridgeEvent = serde_json::from_str(event_json)
+            .expect("BridgeEvent::Button should deserialize from real bridge JSON");
+        apply_event(&state, ev, &|_, _| false);
+        let s = state.lock().unwrap();
+        assert!(s.button_pressed);
+        assert_eq!(s.last_event_t_us, 12345);
+    }
+
+    #[test]
+    fn apply_event_button_release() {
+        let state = Arc::new(Mutex::new(RunState::default()));
+        {
+            let mut s = state.lock().unwrap();
+            s.button_pressed = true;
+        }
+        let ev: BridgeEvent = serde_json::from_str(
+            r#"{"event":"button","t_us":99999,"pressed":false}"#,
+        )
+        .unwrap();
+        apply_event(&state, ev, &|_, _| false);
+        assert!(!state.lock().unwrap().button_pressed);
     }
 }

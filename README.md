@@ -27,27 +27,34 @@ v0.1.0-demo，两块板子可以跑通：
 moxin >
 ```
 
-## 依赖
+## 安装
 
-**STM32F405：**
+先决条件：Rust 1.75+。
+
 ```bash
-brew install --cask gcc-arm-embedded   # arm-none-eabi-gcc
-brew install qemu
+cargo install --git https://github.com/hzj-Jeff-07/moxin-longyuan
 ```
 
-**Arduino Uno：**
+安装完拿 `moxin doctor` 自检外部依赖：
+
 ```bash
-brew install simavr
-brew install arduino-cli
+moxin doctor
 ```
+
+### 外部依赖（按需）
+
+| 板子 | 依赖 | macOS | Linux (Debian/Ubuntu) | Windows |
+|------|------|-------|------------------------|---------|
+| Arduino Uno | simavr | `brew install simavr` | `apt install simavr` | `scoop install simavr`（或自行编译） |
+| Arduino Uno | arduino-cli | `brew install arduino-cli` | 见 [arduino-cli 官方安装](https://arduino.github.io/arduino-cli/latest/installation/) | 同左 |
+| STM32F405 | qemu-system-arm | `brew install qemu` | `apt install qemu-system-arm` | `scoop install qemu` |
+| STM32F405 | arm-none-eabi-gcc | `brew install --cask gcc-arm-embedded` | `apt install gcc-arm-none-eabi` | `scoop install gcc-arm-none-eabi` |
+
+只跑哪块板就装哪块板的依赖。`moxin doctor` 输出会告诉你缺什么。
 
 ## 快速开始
 
 ```bash
-# 编译 moxin
-cargo build --release
-alias moxin="$(pwd)/target/release/moxin"
-
 # 跑 STM32 blink demo
 cd examples/stm32-blink
 moxin build    # 编译固件（support 文件已内嵌，无需额外配置）
