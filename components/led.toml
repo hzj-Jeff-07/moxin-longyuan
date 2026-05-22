@@ -1,0 +1,48 @@
+# 5mm 直插式 LED · components/led.toml
+# 对应建模部任务书 5.1 节第 2 项
+
+[component_type]
+id = "led"
+display_name = "5mm LED"
+category = "output"
+description = "5mm 直插式发光二极管，红/绿/黄/蓝/白可选"
+schema_version = "1.0"
+
+[[pin]]
+name = "anode"
+aliases = ["a", "+"]
+electrical = "digital_in"
+direction = "in"
+required = true
+
+[[pin]]
+name = "cathode"
+aliases = ["c", "-", "k"]
+electrical = "gnd"
+direction = "in"
+required = true
+
+# --- 可调参数 ---
+
+[[parameter]]
+name = "color"
+type = "enum"
+values = ["red", "green", "yellow", "blue", "white"]
+default = "red"
+display_name = "颜色"
+
+# --- 运行时状态 ---
+
+[[state_field]]
+name = "level"
+type = "enum"
+values = ["off", "on"]
+default = "off"
+description = "LED 当前亮灭"
+
+[[state_field]]
+name = "brightness"
+type = "int"
+range = [0, 255]
+default = 0
+description = "PWM 控制的等效亮度 0-255"

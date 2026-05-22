@@ -1,0 +1,69 @@
+# 轻触按钮 · components/button.toml
+# 对应建模部任务书 5.1 节第 3 项
+# 型号：6×6mm 四脚轻触开关
+
+[component_type]
+id = "button"
+display_name = "Push Button"
+category = "input"
+description = "6×6mm 四脚轻触开关，按下导通、松开断开"
+schema_version = "1.0"
+
+# 6×6 轻触开关物理上有 4 个引脚，但电气上只是 2 对内部短接
+# 引脚 a 与 a2 内部短接，b 与 b2 内部短接
+# 按下时 a/a2 与 b/b2 之间导通
+
+[[pin]]
+name = "a"
+aliases = ["1", "pin1"]
+electrical = "digital_out"
+direction = "out"
+required = true
+
+[[pin]]
+name = "b"
+aliases = ["2", "pin2"]
+electrical = "digital_out"
+direction = "out"
+required = true
+
+[[pin]]
+name = "a2"
+aliases = ["3", "pin3"]
+electrical = "digital_out"
+direction = "out"
+required = true
+
+[[pin]]
+name = "b2"
+aliases = ["4", "pin4"]
+electrical = "digital_out"
+direction = "out"
+required = true
+
+# --- 内部连接（注明 a-a2 是同一电气节点，b-b2 是同一电气节点）---
+
+[[internal_connection]]
+nodes = ["a", "a2"]
+note = "未按下时与 b/b2 断开，按下时导通"
+
+[[internal_connection]]
+nodes = ["b", "b2"]
+note = "见上"
+
+# --- 可调参数 ---
+
+[[parameter]]
+name = "cap_color"
+type = "enum"
+values = ["black", "red", "blue", "white"]
+default = "black"
+display_name = "按钮帽颜色"
+
+# --- 运行时状态 ---
+
+[[state_field]]
+name = "pressed"
+type = "bool"
+default = false
+description = "true = 按下，false = 弹起"

@@ -1,0 +1,106 @@
+# 7 段数码管 · components/seven_segment.toml
+# 对应建模部任务书 5.2 节第 7 项
+# 型号：1 位共阴数码管，8 段（含小数点）
+
+[component_type]
+id = "seven_segment"
+display_name = "7-Segment Display (1 digit, common cathode)"
+category = "display"
+description = "1 位 7 段数码管，8 段（A-G + DP）独立控制，共阴极"
+schema_version = "1.0"
+
+# 段 A-G + DP（小数点），共 8 个段，每段对应一个独立引脚
+# 共阴极意味着所有段共用 1 个 GND 引脚
+
+[[pin]]
+name = "seg_a"
+aliases = ["a"]
+electrical = "digital_in"
+direction = "in"
+required = true
+
+[[pin]]
+name = "seg_b"
+aliases = ["b"]
+electrical = "digital_in"
+direction = "in"
+required = true
+
+[[pin]]
+name = "seg_c"
+aliases = ["c"]
+electrical = "digital_in"
+direction = "in"
+required = true
+
+[[pin]]
+name = "seg_d"
+aliases = ["d"]
+electrical = "digital_in"
+direction = "in"
+required = true
+
+[[pin]]
+name = "seg_e"
+aliases = ["e"]
+electrical = "digital_in"
+direction = "in"
+required = true
+
+[[pin]]
+name = "seg_f"
+aliases = ["f"]
+electrical = "digital_in"
+direction = "in"
+required = true
+
+[[pin]]
+name = "seg_g"
+aliases = ["g"]
+electrical = "digital_in"
+direction = "in"
+required = true
+
+[[pin]]
+name = "seg_dp"
+aliases = ["dp", "dot"]
+electrical = "digital_in"
+direction = "in"
+required = true
+
+[[pin]]
+name = "com"
+aliases = ["gnd", "k", "cathode"]
+electrical = "gnd"
+direction = "in"
+required = true
+
+# --- 可调参数 ---
+
+[[parameter]]
+name = "color"
+type = "enum"
+values = ["red", "green", "blue", "yellow"]
+default = "red"
+display_name = "段颜色"
+
+[[parameter]]
+name = "common"
+type = "enum"
+values = ["cathode", "anode"]
+default = "cathode"
+display_name = "共阴 / 共阳"
+
+# --- 运行时状态 ---
+
+[[state_field]]
+name = "segments"
+type = "string"
+default = "00000000"
+description = "8 位二进制字符串，按 a/b/c/d/e/f/g/dp 顺序，1=亮 0=灭"
+
+[[state_field]]
+name = "displayed_digit"
+type = "string"
+default = ""
+description = "派生字段：根据 segments 推断的字符，如 '0' / '8' / 'A'，无法识别为空"

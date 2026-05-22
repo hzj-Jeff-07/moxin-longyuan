@@ -1,0 +1,54 @@
+# 杜邦线 / 跳线 · components/dupont.toml
+# 对应建模部任务书 5.1 节第 6 项
+# 型号：公对公杜邦线，多色
+
+[component_type]
+id = "dupont"
+display_name = "Dupont Jumper Wire"
+category = "wiring"
+description = "公对公杜邦线，柔性可弯折，端子头金属针脚 + 塑料外壳"
+schema_version = "1.0"
+
+# 杜邦线只有两个端子，两端等价
+[[pin]]
+name = "a"
+aliases = ["1"]
+electrical = "passive"
+direction = "bidirectional"
+required = true
+
+[[pin]]
+name = "b"
+aliases = ["2"]
+electrical = "passive"
+direction = "bidirectional"
+required = true
+
+# --- 可调参数 ---
+
+[[parameter]]
+name = "color"
+type = "enum"
+values = ["red", "black", "yellow", "blue", "green", "white", "orange"]
+default = "red"
+display_name = "线缆颜色"
+
+[[parameter]]
+name = "length_mm"
+type = "int"
+range = [50, 300]
+default = 150
+display_name = "长度（mm）"
+
+# --- 运行时状态 ---
+# 无动态状态
+
+# --- 备注 ---
+# 杜邦线在 moxin.toml 里通常不显式声明实例，而是由 wire 语句隐式产生。
+# 例如：[[wire]] from = "board.D13" to = "led1.anode"
+# moxin 渲染时会自动在两端之间画一根杜邦线，颜色按 wire 序号循环。
+#
+# 如果用户确实想指定某根线的颜色，可以显式声明：
+#   [[component]] id = "jumper1" type = "dupont" color = "red"
+#   [[wire]] from = "board.D13" to = "jumper1.a"
+#   [[wire]] from = "jumper1.b" to = "led1.anode"

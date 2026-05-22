@@ -1,0 +1,36 @@
+{
+  "_comment": "杜邦线端子头引脚锚点表模板。建模部主要交付端子头模型 + 线缆材质，线缆本体由连线系统动态生成。",
+  "format_version": "1.0",
+  "component_id": "dupont",
+  "display_name": "Dupont Jumper Wire (male-to-male)",
+  "model_file": "TODO_BY_MODELER",
+  "bounding_box_mm": {
+    "_comment": "杜邦线端子头本身约 8mm 长，线缆部分动态",
+    "min": { "x": null, "y": null, "z": null },
+    "max": { "x": null, "y": null, "z": null }
+  },
+  "pins": [
+    {
+      "name": "a",
+      "electrical": "passive",
+      "position_mm": null,
+      "pin_length_mm": 8.0,
+      "pin_diameter_mm": 0.5,
+      "notes": "端子 A 的金属针脚顶端"
+    },
+    {
+      "name": "b",
+      "electrical": "passive",
+      "position_mm": null,
+      "pin_length_mm": 8.0,
+      "pin_diameter_mm": 0.5,
+      "notes": "端子 B 的金属针脚顶端"
+    }
+  ],
+  "modeler_notes": [
+    "端子头：约 8mm 长金属针 + 6mm 长黑色塑料外壳",
+    "线缆部分：建议样条曲线 + 圆管挤出实现，柔性可弯折",
+    "颜色通过线缆材质参数切换：red / black / yellow / blue / green / white / orange",
+    "线缆默认长度 150mm，但渲染时根据连接两端距离动态生成"
+  ]
+}
