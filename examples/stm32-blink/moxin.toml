@@ -9,7 +9,7 @@ type = "led"
 color = "green"
 
 [[wire]]
-from = "board.D13"
+from = "board.PA13"
 to = "led1.a"
 
 [code]
