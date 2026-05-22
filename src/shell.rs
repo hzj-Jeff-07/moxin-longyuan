@@ -257,7 +257,7 @@ impl Shell {
         if !artifact.exists() {
             bail!("artifact not found at {} — run `build` first", artifact.display());
         }
-        let sim = self.board.spawn_sim(&self.root, &artifact)?;
+        let sim = self.board.spawn_sim(&self.root, &artifact, false)?;
         self.running = Some(sim);
         Ok(format!("✓ simulator started ({})", self.board.board_name()))
     }

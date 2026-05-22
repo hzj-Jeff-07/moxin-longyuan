@@ -92,6 +92,20 @@ moxin> run
 
 TUI 运行中按 `Esc` 退出。
 
+## JSON 输出（给 AI 工具消费）
+
+`moxin run --output json` 不开 TUI，把 bridge 的事件流以 JSON Lines 直接透传到
+stdout，每行一个事件，可被 `jq -c` 消费；状态提示走 stderr，不污染 stdout。
+
+```bash
+moxin run --output json | jq -c
+# {"event":"ready","mcu":"atmega328p","freq":16000000}
+# {"event":"pin","t_us":12345,"port":"B","bit":5,"value":1}
+# {"event":"serial","t_us":12346,"line":"hello"}
+```
+
+Ctrl-C 停止；bridge 自行退出时也会自动结束。
+
 ## 项目结构
 
 ```

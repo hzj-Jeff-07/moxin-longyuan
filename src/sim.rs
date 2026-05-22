@@ -1,7 +1,7 @@
 use anyhow::{Result, anyhow, bail};
 use serde::Deserialize;
 use std::collections::VecDeque;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
 use std::process::{Child, ChildStderr, ChildStdout, ChildStdin, Command, Stdio};
 use std::sync::{Arc, Mutex};
@@ -108,10 +108,13 @@ type IsD13Fn = Box<dyn Fn(&str, u32) -> bool + Send + 'static>;
 
 /// Wrap an already-spawned bridge child into a RunningSim.
 /// `is_d13` determines which (port, bit) pair maps to the board's D13 LED.
+/// When `json_out` is set, each parsed event line is also echoed to stdout as
+/// JSON Lines (for `moxin run --output json`).
 pub fn spawn_with_state(
     mut child: Child,
     voltage_mv: u32,
     is_d13: IsD13Fn,
+    json_out: bool,
 ) -> Result<RunningSim> {
     let stdin = child.stdin.take();
     let stdout = child.stdout.take().ok_or_else(|| anyhow!("bridge stdout not piped"))?;
@@ -120,7 +123,7 @@ pub fn spawn_with_state(
     let state = Arc::new(Mutex::new(RunState { voltage_mv, ..RunState::default() }));
 
     let state_bg = Arc::clone(&state);
-    let handle = thread::spawn(move || reader_loop(stdout, state_bg, is_d13));
+    let handle = thread::spawn(move || reader_loop(stdout, state_bg, is_d13, json_out));
 
     let log_path = bridge_log_path();
     let stderr_handle = thread::spawn(move || stderr_reader_loop(stderr, log_path));
@@ -138,18 +141,21 @@ fn reader_loop(
     stdout: ChildStdout,
     state: Arc<Mutex<RunState>>,
     is_d13: IsD13Fn,
+    json_out: bool,
 ) {
     let reader = BufReader::new(stdout);
     for line in reader.lines() {
         let line = match line { Ok(l) => l, Err(_) => break };
         let trimmed = line.trim();
         if trimmed.is_empty() { continue; }
-        if let Ok(ev) = serde_json::from_str::<BridgeEvent>(trimmed) {
-            if std::env::var("MOXIN_DEBUG").is_ok() {
-                eprintln!("[debug] {:?}", ev);
-            }
-            apply_event(&state, ev, &is_d13);
+        let Ok(ev) = serde_json::from_str::<BridgeEvent>(trimmed) else { continue };
+        if json_out {
+            emit_json_line(&mut std::io::stdout(), trimmed);
         }
+        if std::env::var("MOXIN_DEBUG").is_ok() {
+            eprintln!("[debug] {:?}", ev);
+        }
+        apply_event(&state, ev, &is_d13);
     }
     if let Ok(mut s) = state.lock() {
         s.bridge_exited = true;
@@ -157,6 +163,13 @@ fn reader_loop(
             s.bridge_exit_reason = Some("stdout closed".to_string());
         }
     }
+}
+
+/// Forward one already-validated JSON Lines event to `out`, flushing so piped
+/// consumers (`| jq`) see it immediately.
+fn emit_json_line<W: Write>(out: &mut W, line: &str) {
+    let _ = writeln!(out, "{}", line);
+    let _ = out.flush();
 }
 
 fn apply_event(
@@ -321,5 +334,31 @@ mod tests {
         .unwrap();
         apply_event(&state, ev, &|_, _| false);
         assert!(!state.lock().unwrap().button_pressed);
+    }
+
+    #[test]
+    fn json_mode_forwards_core_events() {
+        // --output json forwards exactly the lines that parse as a BridgeEvent;
+        // ready / pin / serial are the three required by the Phase 1 DOD.
+        for line in [
+            r#"{"event":"ready","mcu":"atmega328p","freq":16000000}"#,
+            r#"{"event":"pin","t_us":12345,"port":"B","bit":5,"value":1}"#,
+            r#"{"event":"serial","t_us":12346,"line":"hello"}"#,
+        ] {
+            assert!(
+                serde_json::from_str::<BridgeEvent>(line).is_ok(),
+                "core event should parse (and thus be forwarded): {line}"
+            );
+        }
+        // garbage is dropped so stdout stays strict JSON Lines
+        assert!(serde_json::from_str::<BridgeEvent>("not json").is_err());
+    }
+
+    #[test]
+    fn emit_json_line_writes_line_with_trailing_newline() {
+        let mut buf: Vec<u8> = Vec::new();
+        let line = r#"{"event":"ready","mcu":"atmega328p","freq":16000000}"#;
+        emit_json_line(&mut buf, line);
+        assert_eq!(buf, format!("{line}\n").into_bytes());
     }
 }

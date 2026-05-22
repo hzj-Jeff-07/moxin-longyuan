@@ -122,7 +122,7 @@ impl super::BoardImpl for ArduinoUno {
         Ok((target_hex, msg))
     }
 
-    fn spawn_sim(&self, root: &Path, artifact: &Path) -> Result<RunningSim> {
+    fn spawn_sim(&self, root: &Path, artifact: &Path, json_out: bool) -> Result<RunningSim> {
         let bridge = find_bridge_avr()?;
         if !bridge.exists() {
             bail!("simavr bridge not found at {} — set $MOXIN_BRIDGE or `make` in bridge/", bridge.display());
@@ -131,7 +131,7 @@ impl super::BoardImpl for ArduinoUno {
             bail!("hex not found: {} — run `build` first", artifact.display());
         }
         let child = spawn_bridge_child(&bridge, &[artifact, Path::new("atmega328p"), Path::new("16000000")], root)?;
-        spawn_with_state(child, self.voltage_mv(), self.spec().make_is_d13())
+        spawn_with_state(child, self.voltage_mv(), self.spec().make_is_d13(), json_out)
     }
 }
 

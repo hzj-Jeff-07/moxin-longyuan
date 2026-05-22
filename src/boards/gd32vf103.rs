@@ -85,7 +85,7 @@ impl super::BoardImpl for Gd32vf103 {
     fn build(&self, _root: &Path) -> Result<(std::path::PathBuf, String)> {
         bail!("GD32VF103 toolchain not yet implemented — riscv32-unknown-elf-gcc required (v2c sprint)")
     }
-    fn spawn_sim(&self, _root: &Path, _artifact: &Path) -> Result<RunningSim> {
+    fn spawn_sim(&self, _root: &Path, _artifact: &Path, _json_out: bool) -> Result<RunningSim> {
         bail!("GD32VF103 simulator not yet implemented (v2c sprint)")
     }
 }
