@@ -99,6 +99,7 @@ examples/
   stm32-blink/     STM32F405 blink（推荐入门）
   led-control/     Arduino Uno，双 LED + 按钮 + serial 控制
   button-counter/  Arduino Uno，按 'b' 计数 + D13 LED 翻转
+  serial-echo/     Arduino Uno，串口回显 + D13 RX 指示灯
 bridge/
   stm32/           STM32 bridge 源码（已内嵌进 moxin binary）
   moxin-simavr-bridge.c   AVR bridge 源码
