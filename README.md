@@ -98,6 +98,7 @@ TUI 运行中按 `Esc` 退出。
 examples/
   stm32-blink/     STM32F405 blink（推荐入门）
   led-control/     Arduino Uno，双 LED + 按钮 + serial 控制
+  button-counter/  Arduino Uno，按 'b' 计数 + D13 LED 翻转
 bridge/
   stm32/           STM32 bridge 源码（已内嵌进 moxin binary）
   moxin-simavr-bridge.c   AVR bridge 源码
