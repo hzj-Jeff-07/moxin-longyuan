@@ -164,9 +164,25 @@ impl Shell {
         let comp = match kind.as_str() {
             "led" => {
                 let color = positional.first().cloned().unwrap_or_else(|| "red".into());
-                Component { id: id.clone(), kind: "led".into(), color: Some(color), pos: None }
+                Component { id: id.clone(), kind: "led".into(), color: Some(color), pos: None, ohms: None, max_ohms: None, wire_color: None }
             }
-            "button" | "btn" => Component { id: id.clone(), kind: "button".into(), color: None, pos: None },
+            "button" | "btn" => Component { id: id.clone(), kind: "button".into(), color: None, pos: None, ohms: None, max_ohms: None, wire_color: None },
+            "resistor" | "res" => {
+                let raw = positional.first().ok_or_else(|| anyhow!("resistor requires ohms value (e.g. `add resistor 10k --id r1`)"))?;
+                let ohms = parse_resistance(raw)?;
+                Component { id: id.clone(), kind: "resistor".into(), color: None, pos: None, ohms: Some(ohms), max_ohms: None, wire_color: None }
+            }
+            "buzzer" | "buzz" => Component { id: id.clone(), kind: "buzzer".into(), color: None, pos: None, ohms: None, max_ohms: None, wire_color: None },
+            "potentiometer" | "pot" => {
+                let max_ohms = positional.first().map(|r| parse_resistance(r)).transpose()?.unwrap_or(10_000);
+                Component { id: id.clone(), kind: "potentiometer".into(), color: None, pos: None, ohms: None, max_ohms: Some(max_ohms), wire_color: None }
+            }
+            "seven_segment" | "7seg" => Component { id: id.clone(), kind: "seven_segment".into(), color: None, pos: None, ohms: None, max_ohms: None, wire_color: None },
+            "breadboard" | "bb" => Component { id: id.clone(), kind: "breadboard".into(), color: None, pos: None, ohms: None, max_ohms: None, wire_color: None },
+            "dupont" | "wire" | "jumper" => {
+                let wire_color = positional.first().cloned();
+                Component { id: id.clone(), kind: "dupont".into(), color: None, pos: None, ohms: None, max_ohms: None, wire_color }
+            }
             other => bail!("unknown component type: {}", other),
         };
 
@@ -257,7 +273,7 @@ impl Shell {
         if !artifact.exists() {
             bail!("artifact not found at {} — run `build` first", artifact.display());
         }
-        let sim = self.board.spawn_sim(&self.root, &artifact)?;
+        let sim = self.board.spawn_sim(&self.root, &artifact, false)?;
         self.running = Some(sim);
         Ok(format!("✓ simulator started ({})", self.board.board_name()))
     }
@@ -283,11 +299,36 @@ impl Shell {
     }
 }
 
+fn parse_resistance(s: &str) -> Result<u32> {
+    let s = s.trim().to_lowercase();
+    let (num_part, multiplier) = if let Some(n) = s.strip_suffix('m') {
+        (n, 1_000_000u64)
+    } else if let Some(n) = s.strip_suffix('k') {
+        (n, 1_000u64)
+    } else {
+        (s.as_str(), 1u64)
+    };
+    let val: f64 = num_part.parse().map_err(|_| anyhow!("invalid resistance value: {}", s))?;
+    let ohms = (val * multiplier as f64) as u32;
+    if ohms == 0 {
+        bail!("resistance must be > 0");
+    }
+    Ok(ohms)
+}
+
 fn help_text() -> String {
     String::from(
         "moxin shell commands:
   board info                       show board details
-  add <type> [color] --id <id>     add component (led / button)
+  add <type> [args] --id <id>      add component:
+        led [color]                  LED (default red)
+        button                       push button
+        resistor <ohms>              resistor (e.g. 10k, 4.7k, 470)
+        buzzer                       piezo buzzer
+        pot [max_ohms]               potentiometer (default 10k)
+        7seg                         seven-segment display
+        breadboard                   breadboard
+        dupont [color]               dupont jumper wire
   wire <from> -> <to>              add wire (e.g. pin13 -> led1.anode)
   show project                     dump project state
   show                             render runtime ASCII frame
@@ -364,5 +405,107 @@ mod tests {
         shell.dispatch("add led red --id led1").unwrap();
         let res = shell.dispatch("wire D7 -> led1.a");
         assert!(res.is_ok(), "D7 should be valid, got: {:?}", res);
+    }
+
+    #[test]
+    fn parse_resistance_plain_ohms() {
+        assert_eq!(parse_resistance("470").unwrap(), 470);
+    }
+
+    #[test]
+    fn parse_resistance_kilo() {
+        assert_eq!(parse_resistance("10k").unwrap(), 10_000);
+    }
+
+    #[test]
+    fn parse_resistance_fractional_kilo() {
+        assert_eq!(parse_resistance("4.7k").unwrap(), 4700);
+    }
+
+    #[test]
+    fn parse_resistance_mega() {
+        assert_eq!(parse_resistance("1m").unwrap(), 1_000_000);
+    }
+
+    #[test]
+    fn parse_resistance_zero_is_error() {
+        assert!(parse_resistance("0").is_err());
+    }
+
+    #[test]
+    fn parse_resistance_invalid_is_error() {
+        assert!(parse_resistance("abc").is_err());
+    }
+
+    #[test]
+    fn add_resistor_succeeds() {
+        let tmp = TempDir::new().expect("tempdir");
+        let mut shell = make_shell(&tmp);
+        let msg = shell.dispatch("add resistor 10k --id r1").unwrap();
+        assert!(msg.contains("✓ added r1"), "got: {}", msg);
+        assert_eq!(shell.project.components[0].ohms, Some(10_000));
+    }
+
+    #[test]
+    fn add_resistor_missing_ohms_is_error() {
+        let tmp = TempDir::new().expect("tempdir");
+        let mut shell = make_shell(&tmp);
+        assert!(shell.dispatch("add resistor --id r1").is_err());
+    }
+
+    #[test]
+    fn add_buzzer_succeeds() {
+        let tmp = TempDir::new().expect("tempdir");
+        let mut shell = make_shell(&tmp);
+        let msg = shell.dispatch("add buzzer --id bz1").unwrap();
+        assert!(msg.contains("✓ added bz1"), "got: {}", msg);
+    }
+
+    #[test]
+    fn add_potentiometer_default_max() {
+        let tmp = TempDir::new().expect("tempdir");
+        let mut shell = make_shell(&tmp);
+        shell.dispatch("add pot --id p1").unwrap();
+        assert_eq!(shell.project.components[0].max_ohms, Some(10_000));
+    }
+
+    #[test]
+    fn add_potentiometer_custom_max() {
+        let tmp = TempDir::new().expect("tempdir");
+        let mut shell = make_shell(&tmp);
+        shell.dispatch("add pot 100k --id p1").unwrap();
+        assert_eq!(shell.project.components[0].max_ohms, Some(100_000));
+    }
+
+    #[test]
+    fn add_seven_segment_succeeds() {
+        let tmp = TempDir::new().expect("tempdir");
+        let mut shell = make_shell(&tmp);
+        let msg = shell.dispatch("add 7seg --id seg1").unwrap();
+        assert!(msg.contains("✓ added seg1"), "got: {}", msg);
+    }
+
+    #[test]
+    fn add_breadboard_succeeds() {
+        let tmp = TempDir::new().expect("tempdir");
+        let mut shell = make_shell(&tmp);
+        let msg = shell.dispatch("add breadboard --id bb1").unwrap();
+        assert!(msg.contains("✓ added bb1"), "got: {}", msg);
+    }
+
+    #[test]
+    fn add_dupont_with_color() {
+        let tmp = TempDir::new().expect("tempdir");
+        let mut shell = make_shell(&tmp);
+        shell.dispatch("add dupont red --id w1").unwrap();
+        assert_eq!(shell.project.components[0].wire_color, Some("red".into()));
+    }
+
+    #[test]
+    fn add_dupont_without_color() {
+        let tmp = TempDir::new().expect("tempdir");
+        let mut shell = make_shell(&tmp);
+        shell.dispatch("add dupont --id w1").unwrap();
+        assert_eq!(shell.project.components[0].wire_color, None);
     }
 }

@@ -1,0 +1,66 @@
+# 面包板 · components/breadboard.toml
+# 对应建模部任务书 5.1 节第 5 项
+# 型号：半尺寸面包板，400 孔
+
+[component_type]
+id = "breadboard"
+display_name = "Half-size Breadboard (400 hole)"
+category = "wiring"
+description = "半尺寸面包板，30 列 × 10 行主区 + 上下电源轨"
+schema_version = "1.0"
+
+# 面包板的"引脚"就是它的 400 个孔位。
+# 命名规则参考 Wokwi / Fritzing：
+#   主区：行字母 (a-j) + 列号 (1-30)，例如 a1 / j30
+#   电源轨：tp (top positive) / tn (top negative) / bp / bn + 列号 1-30
+# 共：300 个主区孔 + 4 × 30 = 120 个电源轨孔 + 中间凹槽分隔
+# 实际 400 孔指的是教学常说法，本 schema 按完整 30 列展开
+
+# 由于孔位太多（420 个），完整 [[pin]] 列表见独立文件：
+#   components/breadboard.pins.toml
+# 这里只列出几个示例做参考
+
+[[pin]]
+name = "a1"
+aliases = []
+electrical = "passive"
+direction = "bidirectional"
+required = false
+
+[[pin]]
+name = "tp1"
+aliases = ["top_pos_1", "+1_top"]
+electrical = "passive"
+direction = "bidirectional"
+required = false
+
+# ... (完整 420 孔位见 breadboard.pins.toml)
+
+# --- 内部连接 ---
+# 主区：每列 a-e 内部连通（一条 5 孔的电气节点）
+#       每列 f-j 内部连通（另一条 5 孔的电气节点）
+#       a-e 与 f-j 在中间凹槽处断开（这是面包板的核心特性）
+# 电源轨：tp1 ~ tp30 全部连通（顶部正极轨）
+#        tn1 ~ tn30 全部连通（顶部负极轨）
+#        bp1 ~ bp30 全部连通（底部正极轨）
+#        bn1 ~ bn30 全部连通（底部负极轨）
+#
+# 完整 connection_group 列表见 breadboard.pins.toml
+
+# --- 可调参数 ---
+
+[[parameter]]
+name = "body_color"
+type = "enum"
+values = ["white", "black", "transparent"]
+default = "white"
+display_name = "面板颜色"
+
+# --- 运行时状态 ---
+# 面包板本身无动态状态，连通性属于静态拓扑
+
+# --- 备注 ---
+# v1.0 schema 完整列出 420 孔位会让本文件超过 1500 行，
+# 因此拆出 breadboard.pins.toml 由开发部 generate 脚本生成。
+# 建模部交付时，pin-anchors/breadboard.json 只需给每个孔位填 xyz，
+# 孔位命名与本 schema 一致即可。

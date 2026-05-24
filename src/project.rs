@@ -32,6 +32,12 @@ pub struct Component {
     pub color: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pos: Option<[i32; 2]>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ohms: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_ohms: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wire_color: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
@@ -156,12 +162,14 @@ mod tests {
                     kind: "led".to_string(),
                     color: Some("red".to_string()),
                     pos: Some([10, 20]),
+                    ohms: None, max_ohms: None, wire_color: None,
                 },
                 Component {
                     id: "btn1".to_string(),
                     kind: "button".to_string(),
                     color: None,
                     pos: None,
+                    ohms: None, max_ohms: None, wire_color: None,
                 },
             ],
             wires: vec![Wire {
@@ -215,12 +223,14 @@ mod tests {
             kind: "led".to_string(),
             color: Some("red".to_string()),
             pos: None,
+            ohms: None, max_ohms: None, wire_color: None,
         };
         let b = Component {
             id: "led2".to_string(),
             kind: "led".to_string(),
             color: Some("green".to_string()),
             pos: None,
+            ohms: None, max_ohms: None, wire_color: None,
         };
         assert!(p.add_component(a).is_ok());
         assert!(p.add_component(b).is_ok());
@@ -235,12 +245,14 @@ mod tests {
             kind: "led".to_string(),
             color: None,
             pos: None,
+            ohms: None, max_ohms: None, wire_color: None,
         };
         let b_same_id = Component {
             id: "led1".to_string(),
             kind: "led".to_string(),
             color: Some("blue".to_string()),
             pos: None,
+            ohms: None, max_ohms: None, wire_color: None,
         };
         assert!(p.add_component(a).is_ok());
         let err = p.add_component(b_same_id);

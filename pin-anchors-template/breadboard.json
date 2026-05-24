@@ -1,0 +1,83 @@
+{
+  "_comment": "半尺寸面包板引脚锚点表模板。建模部任务书 5.1 节第 5 项。完整 420 孔位由开发部生成脚本批量填充行/列后再交付。",
+  "format_version": "1.0",
+  "component_id": "breadboard",
+  "display_name": "Half-size Breadboard (400 hole, 30 col)",
+  "model_file": "TODO_BY_MODELER",
+  "bounding_box_mm": {
+    "_comment": "标准半尺寸面包板：长约 84mm × 宽约 54mm × 厚约 8.5mm",
+    "min": { "x": null, "y": null, "z": null },
+    "max": { "x": null, "y": null, "z": null }
+  },
+  "_pin_naming_rules": {
+    "main_grid": "主区 30 列 × 10 行，命名 <行字母><列号>，行 a-e 在中间凹槽上方，行 f-j 在下方。例：a1 / e15 / f1 / j30",
+    "power_rails": {
+      "top_positive":   "tp1 ~ tp30（顶部红线轨）",
+      "top_negative":   "tn1 ~ tn30（顶部蓝线轨）",
+      "bottom_positive":"bp1 ~ bp30（底部红线轨）",
+      "bottom_negative":"bn1 ~ bn30（底部蓝线轨）"
+    },
+    "total_holes": 420
+  },
+  "pins": [
+    {
+      "_comment": "示例：第 1 列上半主区 a1 ~ e1，5 个孔",
+      "name": "a1",
+      "electrical": "passive",
+      "position_mm": null,
+      "pin_diameter_mm": 1.0,
+      "notes": "主区第 1 列第 1 行（顶部）"
+    },
+    {
+      "name": "tp1",
+      "electrical": "passive",
+      "position_mm": null,
+      "pin_diameter_mm": 1.0,
+      "notes": "顶部正极轨第 1 孔"
+    },
+    {
+      "_comment": "↑ 上面是示例，完整 420 孔位由开发部 generate 脚本生成本文件后建模部填 xyz",
+      "_TODO": "开发部需写 scripts/generate-breadboard-anchors.py 批量生成 a1..j30 + tp1..tp30 + tn1..tn30 + bp1..bp30 + bn1..bn30"
+    }
+  ],
+  "connection_groups": [
+    {
+      "name": "main_col_1_top",
+      "members": ["a1", "b1", "c1", "d1", "e1"],
+      "notes": "主区第 1 列，上半 5 孔内部连通"
+    },
+    {
+      "name": "main_col_1_bottom",
+      "members": ["f1", "g1", "h1", "i1", "j1"],
+      "notes": "主区第 1 列，下半 5 孔内部连通"
+    },
+    {
+      "name": "rail_tp",
+      "members": "tp1..tp30",
+      "_format": "字符串范围简写，CI 校验时展开",
+      "notes": "顶部正极轨 30 孔全连通"
+    },
+    {
+      "name": "rail_tn",
+      "members": "tn1..tn30",
+      "notes": "顶部负极轨 30 孔全连通"
+    },
+    {
+      "name": "rail_bp",
+      "members": "bp1..bp30",
+      "notes": "底部正极轨 30 孔全连通"
+    },
+    {
+      "name": "rail_bn",
+      "members": "bn1..bn30",
+      "notes": "底部负极轨 30 孔全连通"
+    }
+  ],
+  "modeler_notes": [
+    "面板为白色 ABS 塑料",
+    "顶部正极轨标红线，负极轨标蓝线",
+    "底部同理",
+    "中间凹槽宽度约 7-8mm，是 a-e 与 f-j 在物理上断开的可视化标志",
+    "每个孔位约 1.0mm 直径，孔间距 2.54mm（标准间距）"
+  ]
+}

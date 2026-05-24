@@ -1,0 +1,45 @@
+{
+  "_comment": "10kΩ 三脚旋钮电位器引脚锚点表模板",
+  "format_version": "1.0",
+  "component_id": "potentiometer",
+  "display_name": "Potentiometer (10kΩ, 3-pin rotary)",
+  "model_file": "TODO_BY_MODELER",
+  "bounding_box_mm": {
+    "_comment": "常见 RV09 / WH148 系列：本体约 9-16mm 见方，旋钮顶高约 15-20mm",
+    "min": { "x": null, "y": null, "z": null },
+    "max": { "x": null, "y": null, "z": null }
+  },
+  "pins": [
+    {
+      "name": "terminal_a",
+      "electrical": "power",
+      "position_mm": null,
+      "pin_length_mm": null,
+      "pin_diameter_mm": 0.6,
+      "notes": "1 号脚，固定端 A（接 VCC 或 GND 任一端）"
+    },
+    {
+      "name": "wiper",
+      "electrical": "analog_out",
+      "position_mm": null,
+      "pin_length_mm": null,
+      "pin_diameter_mm": 0.6,
+      "notes": "2 号脚（中间），刷动端，输出分压"
+    },
+    {
+      "name": "terminal_b",
+      "electrical": "gnd",
+      "position_mm": null,
+      "pin_length_mm": null,
+      "pin_diameter_mm": 0.6,
+      "notes": "3 号脚，固定端 B（接 GND 或 VCC 任一端）"
+    }
+  ],
+  "modeler_notes": [
+    "经典蓝色塑料外壳 + 金属顶旋钮（直径约 6mm）",
+    "旋钮 0° ~ 270° 平滑旋转，需为旋钮 mesh 设置 Z 轴旋转 pivot",
+    "三脚通常一字排列，间距 2.54mm 或 5mm，参考具体型号",
+    "本体顶部常有调节凹槽（一字螺丝刀可拧）",
+    "推荐参考型号：RV09 立式 / WH148 卧式，淘宝搜 '10K 电位器 RV09'"
+  ]
+}

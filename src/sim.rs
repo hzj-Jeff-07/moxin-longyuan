@@ -1,7 +1,7 @@
 use anyhow::{Result, anyhow, bail};
 use serde::Deserialize;
-use std::collections::VecDeque;
-use std::io::{BufRead, BufReader};
+use std::collections::{HashMap, VecDeque};
+use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
 use std::process::{Child, ChildStderr, ChildStdout, ChildStdin, Command, Stdio};
 use std::sync::{Arc, Mutex};
@@ -31,6 +31,7 @@ pub struct RunState {
     pub bridge_exited: bool,
     pub bridge_exit_reason: Option<String>,
     pub button_pressed: bool,
+    pub pin_states: HashMap<String, u8>,
 }
 
 impl Default for RunState {
@@ -49,11 +50,22 @@ impl Default for RunState {
             bridge_exited: false,
             bridge_exit_reason: None,
             button_pressed: false,
+            pin_states: HashMap::new(),
         }
     }
 }
 
 impl RunState {
+    pub fn write_state_file(&self, path: &std::path::Path) {
+        let mut map = serde_json::Map::new();
+        map.insert("ready".into(), serde_json::Value::Bool(self.ready));
+        map.insert("mcu".into(), serde_json::Value::String(self.mcu.clone()));
+        map.insert("bridge_exited".into(), serde_json::Value::Bool(self.bridge_exited));
+        let pins: HashMap<&str, u8> = self.pin_states.iter().map(|(k, v)| (k.as_str(), *v)).collect();
+        map.insert("pin_states".into(), serde_json::to_value(&pins).unwrap_or_default());
+        let _ = std::fs::write(path, serde_json::to_string_pretty(&map).unwrap_or_default());
+    }
+
     pub fn loop_time_us(&self) -> Option<u64> {
         if self.prev_pin_event_t_us == 0 || self.last_pin_event_t_us <= self.prev_pin_event_t_us {
             None
@@ -108,10 +120,13 @@ type IsD13Fn = Box<dyn Fn(&str, u32) -> bool + Send + 'static>;
 
 /// Wrap an already-spawned bridge child into a RunningSim.
 /// `is_d13` determines which (port, bit) pair maps to the board's D13 LED.
+/// When `json_out` is set, each parsed event line is also echoed to stdout as
+/// JSON Lines (for `moxin run --output json`).
 pub fn spawn_with_state(
     mut child: Child,
     voltage_mv: u32,
     is_d13: IsD13Fn,
+    json_out: bool,
 ) -> Result<RunningSim> {
     let stdin = child.stdin.take();
     let stdout = child.stdout.take().ok_or_else(|| anyhow!("bridge stdout not piped"))?;
@@ -120,7 +135,7 @@ pub fn spawn_with_state(
     let state = Arc::new(Mutex::new(RunState { voltage_mv, ..RunState::default() }));
 
     let state_bg = Arc::clone(&state);
-    let handle = thread::spawn(move || reader_loop(stdout, state_bg, is_d13));
+    let handle = thread::spawn(move || reader_loop(stdout, state_bg, is_d13, json_out));
 
     let log_path = bridge_log_path();
     let stderr_handle = thread::spawn(move || stderr_reader_loop(stderr, log_path));
@@ -138,18 +153,21 @@ fn reader_loop(
     stdout: ChildStdout,
     state: Arc<Mutex<RunState>>,
     is_d13: IsD13Fn,
+    json_out: bool,
 ) {
     let reader = BufReader::new(stdout);
     for line in reader.lines() {
         let line = match line { Ok(l) => l, Err(_) => break };
         let trimmed = line.trim();
         if trimmed.is_empty() { continue; }
-        if let Ok(ev) = serde_json::from_str::<BridgeEvent>(trimmed) {
-            if std::env::var("MOXIN_DEBUG").is_ok() {
-                eprintln!("[debug] {:?}", ev);
-            }
-            apply_event(&state, ev, &is_d13);
+        let Ok(ev) = serde_json::from_str::<BridgeEvent>(trimmed) else { continue };
+        if json_out {
+            emit_json_line(&mut std::io::stdout(), trimmed);
         }
+        if std::env::var("MOXIN_DEBUG").is_ok() {
+            eprintln!("[debug] {:?}", ev);
+        }
+        apply_event(&state, ev, &is_d13);
     }
     if let Ok(mut s) = state.lock() {
         s.bridge_exited = true;
@@ -157,6 +175,13 @@ fn reader_loop(
             s.bridge_exit_reason = Some("stdout closed".to_string());
         }
     }
+}
+
+/// Forward one already-validated JSON Lines event to `out`, flushing so piped
+/// consumers (`| jq`) see it immediately.
+fn emit_json_line<W: Write>(out: &mut W, line: &str) {
+    let _ = writeln!(out, "{}", line);
+    let _ = out.flush();
 }
 
 fn apply_event(
@@ -175,6 +200,7 @@ fn apply_event(
             s.last_event_t_us = t_us;
             s.prev_pin_event_t_us = s.last_pin_event_t_us;
             s.last_pin_event_t_us = t_us;
+            s.pin_states.insert(format!("{}:{}", port, bit), value);
             if is_d13(&port, bit as u32) {
                 s.d13 = if value != 0 { LedLevel::On } else { LedLevel::Off };
             }
@@ -209,7 +235,11 @@ pub(crate) fn stderr_reader_loop(stderr: ChildStderr, log_path: PathBuf) {
 }
 
 pub(crate) fn bridge_log_path() -> PathBuf {
-    if let Some(home) = std::env::var("HOME").ok().filter(|h| !h.is_empty()) {
+    let home = std::env::var("USERPROFILE")
+        .or_else(|_| std::env::var("HOME"))
+        .ok()
+        .filter(|h| !h.is_empty());
+    if let Some(home) = home {
         let dir = PathBuf::from(home).join(".cache").join("moxin");
         if std::fs::create_dir_all(&dir).is_ok() {
             return dir.join("bridge.log");
@@ -224,7 +254,8 @@ pub fn find_bridge_avr() -> Result<PathBuf> {
     }
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
-            let candidate = dir.join("moxin-simavr-bridge");
+            let name = if cfg!(windows) { "moxin-simavr-bridge.exe" } else { "moxin-simavr-bridge" };
+            let candidate = dir.join(name);
             if candidate.exists() { return Ok(candidate); }
         }
     }
@@ -238,7 +269,8 @@ pub fn find_bridge_stm32() -> Result<PathBuf> {
         return Ok(PathBuf::from(p));
     }
     let cache_dir = dirs_cache_dir()?;
-    let bridge = cache_dir.join("bridge-stm32");
+    let bridge_name = if cfg!(windows) { "bridge-stm32.exe" } else { "bridge-stm32" };
+    let bridge = cache_dir.join(bridge_name);
     if !bridge.exists() {
         let src = cache_dir.join("bridge-stm32.c");
         std::fs::write(&src, BRIDGE_STM32_SRC)?;
@@ -256,7 +288,8 @@ pub fn find_bridge_stm32() -> Result<PathBuf> {
 }
 
 fn dirs_cache_dir() -> Result<PathBuf> {
-    let base = std::env::var("HOME")
+    let base = std::env::var("USERPROFILE")
+        .or_else(|_| std::env::var("HOME"))
         .map(PathBuf::from)
         .unwrap_or_else(|_| std::env::temp_dir());
     let dir = base.join(".moxin");
@@ -297,13 +330,55 @@ mod tests {
     }
 
     #[test]
-    fn button_event_deserializes_and_applies() {
+    fn apply_event_button_updates_state() {
         let state = Arc::new(Mutex::new(RunState::default()));
-        let ev: BridgeEvent = serde_json::from_str(
-            r#"{"event":"button","t_us":1234,"pressed":true}"#
-        ).expect("deserialize button event");
+        let event_json = r#"{"event":"button","t_us":12345,"pressed":true}"#;
+        let ev: BridgeEvent = serde_json::from_str(event_json)
+            .expect("BridgeEvent::Button should deserialize from real bridge JSON");
         apply_event(&state, ev, &|_, _| false);
-        assert!(state.lock().unwrap().button_pressed);
-        assert_eq!(state.lock().unwrap().last_event_t_us, 1234);
+        let s = state.lock().unwrap();
+        assert!(s.button_pressed);
+        assert_eq!(s.last_event_t_us, 12345);
+    }
+
+    #[test]
+    fn apply_event_button_release() {
+        let state = Arc::new(Mutex::new(RunState::default()));
+        {
+            let mut s = state.lock().unwrap();
+            s.button_pressed = true;
+        }
+        let ev: BridgeEvent = serde_json::from_str(
+            r#"{"event":"button","t_us":99999,"pressed":false}"#,
+        )
+        .unwrap();
+        apply_event(&state, ev, &|_, _| false);
+        assert!(!state.lock().unwrap().button_pressed);
+    }
+
+    #[test]
+    fn json_mode_forwards_core_events() {
+        // --output json forwards exactly the lines that parse as a BridgeEvent;
+        // ready / pin / serial are the three required by the Phase 1 DOD.
+        for line in [
+            r#"{"event":"ready","mcu":"atmega328p","freq":16000000}"#,
+            r#"{"event":"pin","t_us":12345,"port":"B","bit":5,"value":1}"#,
+            r#"{"event":"serial","t_us":12346,"line":"hello"}"#,
+        ] {
+            assert!(
+                serde_json::from_str::<BridgeEvent>(line).is_ok(),
+                "core event should parse (and thus be forwarded): {line}"
+            );
+        }
+        // garbage is dropped so stdout stays strict JSON Lines
+        assert!(serde_json::from_str::<BridgeEvent>("not json").is_err());
+    }
+
+    #[test]
+    fn emit_json_line_writes_line_with_trailing_newline() {
+        let mut buf: Vec<u8> = Vec::new();
+        let line = r#"{"event":"ready","mcu":"atmega328p","freq":16000000}"#;
+        emit_json_line(&mut buf, line);
+        assert_eq!(buf, format!("{line}\n").into_bytes());
     }
 }

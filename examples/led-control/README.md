@@ -28,8 +28,23 @@ GND ──── LED cathodes + Button pin B
 4. Type `g` → green LED toggles
 5. Button press (simulated via firmware) prints `BTN=1`
 
+## Run
+
+```bash
+cd examples/led-control
+moxin build           # arduino-cli compiles src/main.ino
+moxin shell           # enter shell
+moxin> run            # launch simavr, enter TUI
+# In Serial Monitor: type r / g / s / ?
+moxin> stop
+```
+
 ## Limitations (v2b)
 
 - Button simulation: physical button press not yet wired to simavr GPIO input
 - Serial RX injection: single-char commands only (no line buffering)
 - STM32 board: button events rely on firmware self-reporting, not real GPIO simulation
+
+## Dependencies
+
+Requires `simavr` + `arduino-cli`. Run `moxin doctor` to check.

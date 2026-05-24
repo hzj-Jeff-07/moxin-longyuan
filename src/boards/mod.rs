@@ -19,7 +19,7 @@ pub trait BoardImpl {
     fn scaffold_project(&self, name: &str) -> Project;
     fn source_template(&self) -> &'static str;
     fn build(&self, root: &Path) -> Result<(PathBuf, String)>;
-    fn spawn_sim(&self, root: &Path, artifact: &Path) -> Result<RunningSim>;
+    fn spawn_sim(&self, root: &Path, artifact: &Path, json_out: bool) -> Result<RunningSim>;
 }
 
 pub fn board_from_str(s: &str) -> Result<Box<dyn BoardImpl>> {

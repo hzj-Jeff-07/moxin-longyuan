@@ -1,0 +1,36 @@
+{
+  "_comment": "无源蜂鸣器引脚锚点表模板",
+  "format_version": "1.0",
+  "component_id": "buzzer",
+  "display_name": "Passive Buzzer",
+  "model_file": "TODO_BY_MODELER",
+  "bounding_box_mm": {
+    "_comment": "常见无源蜂鸣器直径约 12mm，高度约 9mm（含出声孔）",
+    "min": { "x": null, "y": null, "z": null },
+    "max": { "x": null, "y": null, "z": null }
+  },
+  "pins": [
+    {
+      "name": "positive",
+      "electrical": "pwm_in",
+      "position_mm": null,
+      "pin_length_mm": null,
+      "pin_diameter_mm": 0.5,
+      "notes": "长脚为正极。两脚间距约 7.6mm"
+    },
+    {
+      "name": "negative",
+      "electrical": "gnd",
+      "position_mm": null,
+      "pin_length_mm": null,
+      "pin_diameter_mm": 0.5,
+      "notes": "短脚为负极"
+    }
+  ],
+  "modeler_notes": [
+    "黑色圆柱外壳，PCB 上常见的 12mm 蜂鸣器（型号如 HYDZ 12085 / TMB12A）",
+    "顶部有出声孔（约 1.5mm 直径）",
+    "正面通常贴有产品标贴或型号丝印",
+    "建议建模时为'发声'状态预留一组半透明声波环 mesh，可由代码控制可见性"
+  ]
+}

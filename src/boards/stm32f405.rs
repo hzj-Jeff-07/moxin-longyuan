@@ -218,7 +218,7 @@ impl super::BoardImpl for Stm32f405 {
         Ok((target_elf, msg))
     }
 
-    fn spawn_sim(&self, root: &Path, artifact: &Path) -> Result<RunningSim> {
+    fn spawn_sim(&self, root: &Path, artifact: &Path, json_out: bool) -> Result<RunningSim> {
         let bridge = find_bridge_stm32()?;
         if !bridge.exists() {
             bail!("stm32 bridge not found at {} — set $MOXIN_BRIDGE_STM32 or `make` in bridge/stm32/", bridge.display());
@@ -227,7 +227,7 @@ impl super::BoardImpl for Stm32f405 {
             bail!("elf not found: {} — run `build` first", artifact.display());
         }
         let child = spawn_bridge_child(&bridge, &[artifact], root)?;
-        spawn_with_state(child, self.voltage_mv(), self.spec().make_is_d13())
+        spawn_with_state(child, self.voltage_mv(), self.spec().make_is_d13(), json_out)
     }
 }
 

@@ -13,4 +13,4 @@ from = "board.PA13"
 to = "led1.a"
 
 [code]
-src = "src/main.c"
+src = "main.c"

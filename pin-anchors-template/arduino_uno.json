@@ -1,0 +1,52 @@
+{
+  "_comment": "Arduino Uno R3 引脚锚点表模板。开发部预填元数据，建模部填充 position_mm。完整说明见 docs/component-schema.md 第六节。",
+  "format_version": "1.0",
+  "component_id": "arduino_uno",
+  "display_name": "Arduino Uno R3",
+  "model_file": "TODO_BY_MODELER",
+  "bounding_box_mm": {
+    "_comment": "Arduino Uno R3 标准尺寸约 68.6 × 53.4 × 13 mm（不含 USB / DC 凸出）",
+    "min": { "x": null, "y": null, "z": null },
+    "max": { "x": null, "y": null, "z": null }
+  },
+  "pins": [
+    { "name": "D0",  "electrical": "uart_rx",    "position_mm": null, "notes": "RX" },
+    { "name": "D1",  "electrical": "uart_tx",    "position_mm": null, "notes": "TX" },
+    { "name": "D2",  "electrical": "digital_in", "position_mm": null },
+    { "name": "D3",  "electrical": "pwm_in",     "position_mm": null, "notes": "PWM" },
+    { "name": "D4",  "electrical": "digital_in", "position_mm": null },
+    { "name": "D5",  "electrical": "pwm_in",     "position_mm": null, "notes": "PWM" },
+    { "name": "D6",  "electrical": "pwm_in",     "position_mm": null, "notes": "PWM" },
+    { "name": "D7",  "electrical": "digital_in", "position_mm": null },
+    { "name": "D8",  "electrical": "digital_in", "position_mm": null },
+    { "name": "D9",  "electrical": "pwm_in",     "position_mm": null, "notes": "PWM" },
+    { "name": "D10", "electrical": "pwm_in",     "position_mm": null, "notes": "PWM / SS" },
+    { "name": "D11", "electrical": "pwm_in",     "position_mm": null, "notes": "PWM / MOSI" },
+    { "name": "D12", "electrical": "digital_in", "position_mm": null, "notes": "MISO" },
+    { "name": "D13", "electrical": "digital_in", "position_mm": null, "notes": "SCK / 板载 LED" },
+
+    { "name": "A0", "electrical": "analog_in", "position_mm": null },
+    { "name": "A1", "electrical": "analog_in", "position_mm": null },
+    { "name": "A2", "electrical": "analog_in", "position_mm": null },
+    { "name": "A3", "electrical": "analog_in", "position_mm": null },
+    { "name": "A4", "electrical": "i2c_sda",   "position_mm": null, "notes": "I2C SDA" },
+    { "name": "A5", "electrical": "i2c_scl",   "position_mm": null, "notes": "I2C SCL" },
+
+    { "name": "5V",   "electrical": "power", "position_mm": null },
+    { "name": "3V3",  "electrical": "power", "position_mm": null },
+    { "name": "GND1", "electrical": "gnd",   "position_mm": null, "notes": "电源区第一个 GND" },
+    { "name": "GND2", "electrical": "gnd",   "position_mm": null, "notes": "电源区第二个 GND" },
+    { "name": "GND3", "electrical": "gnd",   "position_mm": null, "notes": "数字区 GND" },
+    { "name": "VIN",  "electrical": "power", "position_mm": null },
+    { "name": "AREF", "electrical": "analog_in", "position_mm": null, "notes": "ADC 参考电压" },
+    { "name": "RESET","electrical": "digital_in", "position_mm": null }
+  ],
+  "modeler_notes": [
+    "Arduino Uno R3 PCB 颜色为经典蓝绿色",
+    "USB Type-B 接口位于板子一端，DC 电源接口在同侧",
+    "ATmega328P 主控芯片为 DIP-28 封装，丝印朝上",
+    "板载 LED (L) 位于 D13 引脚附近",
+    "复位按钮位于 USB 接口旁",
+    "晶振位于 ATmega328P 附近"
+  ]
+}

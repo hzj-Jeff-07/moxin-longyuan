@@ -26,9 +26,9 @@ use ratatui::widgets::{Block, Borders, Paragraph};
 use std::io;
 use std::time::{Duration, Instant};
 
-use unicode_width::UnicodeWidthStr;
 use crate::sim::RunState;
 use crate::inspector::{Inspector, InspectorLine, InspectorStatus, StubInspector};
+use crate::project::Project;
 
 const TOAST_TTL: Duration = Duration::from_secs(2);
 const NARROW_WIDTH_THRESHOLD: u16 = 80;
@@ -413,8 +413,7 @@ pub fn run(shell: &mut crate::shell::Shell) -> Result<()> {
                 frame.render_widget(Paragraph::new(prompt_line), outer[2]);
 
                 // 光标:`moxin > ` 占 8 列,然后 buffer 中 cursor 之前的字符数
-                let prefix: String = input.buffer[..input.cursor].iter().collect();
-                let cursor_x = outer[2].x + 8 + UnicodeWidthStr::width(prefix.as_str()) as u16;
+                let cursor_x = outer[2].x + 8 + input.cursor as u16;
                 let cursor_y = outer[2].y;
                 frame.set_cursor_position(Position::new(cursor_x, cursor_y));
             })
@@ -476,3 +475,8 @@ pub fn run(shell: &mut crate::shell::Shell) -> Result<()> {
     }
     Ok(())
 }
+
+// 抑制 unused_import 警告 if Project not actually used in this file.
+// (Reserved for future direct project access in TUI; harmless.)
+#[allow(dead_code)]
+fn _project_marker(_p: &Project) {}

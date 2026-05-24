@@ -1,0 +1,58 @@
+# 无源蜂鸣器 · components/buzzer.toml
+# 对应建模部任务书 5.2 节第 8 项
+# 型号：常规直插式无源蜂鸣器
+
+[component_type]
+id = "buzzer"
+display_name = "Passive Buzzer"
+category = "output"
+description = "直插式无源蜂鸣器，需 MCU 输出方波驱动发声"
+schema_version = "1.0"
+
+# 蜂鸣器有极性，长脚为 + 短脚为 -
+[[pin]]
+name = "positive"
+aliases = ["+", "vcc", "a"]
+electrical = "pwm_in"
+direction = "in"
+required = true
+
+[[pin]]
+name = "negative"
+aliases = ["-", "gnd", "c"]
+electrical = "gnd"
+direction = "in"
+required = true
+
+# --- 可调参数 ---
+
+[[parameter]]
+name = "enable_sound"
+type = "bool"
+default = false
+display_name = "终端响铃"
+
+# --- 运行时状态 ---
+
+[[state_field]]
+name = "active"
+type = "bool"
+default = false
+description = "true = 正在驱动方波，false = 静默"
+
+[[state_field]]
+name = "frequency_hz"
+type = "int"
+range = [0, 20000]
+default = 0
+description = "当前驱动频率（Hz），由仿真器从 PWM 周期推算"
+
+# --- 备注 ---
+# 无源蜂鸣器与有源蜂鸣器的区别：
+#   - 有源：通电即发固定频率声
+#   - 无源：需要 MCU 输出方波，频率决定音调
+# 本元件为无源型，需要 MCU 实际产生 PWM / tone() 信号才会响。
+#
+# TUI 渲染建议：
+#   静默时：[Buzzer:buzz1 ─]
+#   发声时：[Buzzer:buzz1 ♪ 440Hz] + 可选 \a 响铃

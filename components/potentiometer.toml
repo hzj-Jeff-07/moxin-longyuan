@@ -1,0 +1,78 @@
+# 电位器 · components/potentiometer.toml
+# 对应建模部任务书 5.2 节第 9 项
+# 型号：10kΩ 三脚旋钮电位器
+
+[component_type]
+id = "potentiometer"
+display_name = "Potentiometer (10kΩ)"
+category = "input"
+description = "三脚旋钮电位器，0-270° 旋转范围，输出对应模拟电压"
+schema_version = "1.0"
+
+# 三脚电位器：左右两端固定接 VCC / GND，中间 wiper 输出 0-VCC 间的模拟电压
+[[pin]]
+name = "terminal_a"
+aliases = ["1", "a"]
+electrical = "power"
+direction = "in"
+required = true
+
+[[pin]]
+name = "wiper"
+aliases = ["2", "w", "out"]
+electrical = "analog_out"
+direction = "out"
+required = true
+
+[[pin]]
+name = "terminal_b"
+aliases = ["3", "b"]
+electrical = "gnd"
+direction = "in"
+required = true
+
+# --- 可调参数 ---
+
+[[parameter]]
+name = "max_ohms"
+type = "int"
+range = [100, 1000000]
+default = 10000
+display_name = "总阻值（Ω）"
+
+[[parameter]]
+name = "body_color"
+type = "enum"
+values = ["blue", "black"]
+default = "blue"
+display_name = "外壳颜色"
+
+# --- 运行时状态 ---
+
+[[state_field]]
+name = "angle_deg"
+type = "float"
+range = [0.0, 270.0]
+default = 0.0
+description = "当前旋转角度，0° 到 270°"
+
+[[state_field]]
+name = "adc_value"
+type = "int"
+range = [0, 1023]
+default = 0
+description = "10-bit ADC 等效读数（angle 派生）"
+
+# --- 用户交互 ---
+# TUI 模式下，用户应能通过快捷键调节当前角度：
+#   左方向键：角度 -10°
+#   右方向键：角度 +10°
+#   Shift+左/右：角度 ±1°
+# 由 moxin TUI 实现，本 schema 仅说明意图。
+
+# --- 备注 ---
+# 仿真层将 angle_deg 线性映射到 wiper 引脚的输出电压：
+#   wiper_voltage = (angle_deg / 270) * VCC
+# ADC 等效读数：
+#   adc_value = round((angle_deg / 270) * 1023)
+# 实际芯片上的 analogRead() 会返回 adc_value。

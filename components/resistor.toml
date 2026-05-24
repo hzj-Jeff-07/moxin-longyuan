@@ -1,0 +1,53 @@
+# 色环电阻 · components/resistor.toml
+# 对应建模部任务书 5.1 节第 4 项
+# 型号：1/4W 通用直插色环电阻
+
+[component_type]
+id = "resistor"
+display_name = "Color-Ring Resistor"
+category = "passive"
+description = "1/4W 直插色环电阻，阻值可调，色环贴图动态生成"
+schema_version = "1.0"
+
+# 电阻是无极性元件，两端等价
+[[pin]]
+name = "a"
+aliases = ["1", "+"]
+electrical = "passive"
+direction = "bidirectional"
+required = true
+
+[[pin]]
+name = "b"
+aliases = ["2", "-"]
+electrical = "passive"
+direction = "bidirectional"
+required = true
+
+# --- 可调参数 ---
+
+[[parameter]]
+name = "ohms"
+type = "int"
+range = [1, 10000000]
+default = 220
+display_name = "阻值（Ω）"
+
+# 预设档位，UI 可以下拉直选
+[[parameter]]
+name = "preset"
+type = "enum"
+values = ["220", "330", "1k", "10k", "100k", "custom"]
+default = "220"
+display_name = "常用预设"
+
+# --- 运行时状态 ---
+# 电阻在仿真层不维护动态状态，故无 state_field
+
+# --- 备注 ---
+# 色环颜色由 ohms 自动生成，建模部不需要为每个阻值出一份模型
+# 色环规则（4 色环）：
+#   第 1 环 = 第一位数字
+#   第 2 环 = 第二位数字
+#   第 3 环 = 倍率
+#   第 4 环 = 精度（金 ±5% / 银 ±10%）

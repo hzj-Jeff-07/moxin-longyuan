@@ -1,0 +1,35 @@
+{
+  "_comment": "色环电阻引脚锚点表模板",
+  "format_version": "1.0",
+  "component_id": "resistor",
+  "display_name": "Color-Ring Resistor (1/4W)",
+  "model_file": "TODO_BY_MODELER",
+  "bounding_box_mm": {
+    "_comment": "1/4W 色环电阻：体长约 6.5mm，体直径约 2.4mm，引脚总长含弯折后约 25mm",
+    "min": { "x": null, "y": null, "z": null },
+    "max": { "x": null, "y": null, "z": null }
+  },
+  "pins": [
+    {
+      "name": "a",
+      "electrical": "passive",
+      "position_mm": null,
+      "pin_length_mm": null,
+      "pin_diameter_mm": 0.6,
+      "notes": "无极性，与 b 等价"
+    },
+    {
+      "name": "b",
+      "electrical": "passive",
+      "position_mm": null,
+      "pin_length_mm": null,
+      "pin_diameter_mm": 0.6,
+      "notes": "无极性，与 a 等价"
+    }
+  ],
+  "modeler_notes": [
+    "电阻本体为米黄色或浅蓝色陶瓷封装",
+    "色环为贴图独立一层，可由 ohms 参数动态生成（4 环格式）",
+    "引脚为细金属线，可弯折插入面包板"
+  ]
+}

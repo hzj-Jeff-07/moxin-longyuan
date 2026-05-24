@@ -27,27 +27,34 @@ v0.1.0-demo，两块板子可以跑通：
 moxin >
 ```
 
-## 依赖
+## 安装
 
-**STM32F405：**
+先决条件：Rust 1.75+。
+
 ```bash
-brew install --cask gcc-arm-embedded   # arm-none-eabi-gcc
-brew install qemu
+cargo install --git https://github.com/hzj-Jeff-07/moxin-longyuan
 ```
 
-**Arduino Uno：**
+安装完拿 `moxin doctor` 自检外部依赖：
+
 ```bash
-brew install simavr
-brew install arduino-cli
+moxin doctor
 ```
+
+### 外部依赖（按需）
+
+| 板子 | 依赖 | macOS | Linux (Debian/Ubuntu) | Windows |
+|------|------|-------|------------------------|---------|
+| Arduino Uno | simavr | `brew install simavr` | `apt install simavr` | `scoop install simavr`（或自行编译） |
+| Arduino Uno | arduino-cli | `brew install arduino-cli` | 见 [arduino-cli 官方安装](https://arduino.github.io/arduino-cli/latest/installation/) | 同左 |
+| STM32F405 | qemu-system-arm | `brew install qemu` | `apt install qemu-system-arm` | `scoop install qemu` |
+| STM32F405 | arm-none-eabi-gcc | `brew install --cask gcc-arm-embedded` | `apt install gcc-arm-none-eabi` | `scoop install gcc-arm-none-eabi` |
+
+只跑哪块板就装哪块板的依赖。`moxin doctor` 输出会告诉你缺什么。
 
 ## 快速开始
 
 ```bash
-# 编译 moxin
-cargo build --release
-alias moxin="$(pwd)/target/release/moxin"
-
 # 跑 STM32 blink demo
 cd examples/stm32-blink
 moxin build    # 编译固件（support 文件已内嵌，无需额外配置）
@@ -85,12 +92,28 @@ moxin> run
 
 TUI 运行中按 `Esc` 退出。
 
+## JSON 输出（给 AI 工具消费）
+
+`moxin run --output json` 不开 TUI，把 bridge 的事件流以 JSON Lines 直接透传到
+stdout，每行一个事件，可被 `jq -c` 消费；状态提示走 stderr，不污染 stdout。
+
+```bash
+moxin run --output json | jq -c
+# {"event":"ready","mcu":"atmega328p","freq":16000000}
+# {"event":"pin","t_us":12345,"port":"B","bit":5,"value":1}
+# {"event":"serial","t_us":12346,"line":"hello"}
+```
+
+Ctrl-C 停止；bridge 自行退出时也会自动结束。
+
 ## 项目结构
 
 ```
 examples/
   stm32-blink/     STM32F405 blink（推荐入门）
   led-control/     Arduino Uno，双 LED + 按钮 + serial 控制
+  button-counter/  Arduino Uno，按 'b' 计数 + D13 LED 翻转
+  serial-echo/     Arduino Uno，串口回显 + D13 RX 指示灯
 bridge/
   stm32/           STM32 bridge 源码（已内嵌进 moxin binary）
   moxin-simavr-bridge.c   AVR bridge 源码
