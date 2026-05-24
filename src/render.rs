@@ -520,4 +520,77 @@ mod tests {
         assert_eq!(rings[1], Color::Black);
         assert_eq!(rings[2], Color::Black);
     }
+
+    fn make_comp(id: &str, kind: &str) -> Component {
+        Component {
+            id: id.to_string(),
+            kind: kind.to_string(),
+            color: None,
+            pos: None,
+            ohms: None,
+            max_ohms: None,
+            wire_color: None,
+        }
+    }
+
+    fn project_with(components: Vec<Component>, wires: Vec<crate::project::Wire>) -> Project {
+        Project {
+            project: crate::project::ProjectMeta {
+                name: "test".to_string(),
+                board: "arduino-uno".to_string(),
+                version: "0.2".to_string(),
+            },
+            components,
+            wires,
+            code: None,
+        }
+    }
+
+    #[test]
+    fn render_runtime_frame_handles_phase2_components() {
+        // Phase 2 新元件全部塞进一个项目,验证 render 不 panic 且都出现
+        let mut r1 = make_comp("r1", "resistor");
+        r1.ohms = Some(470);
+        let bz = make_comp("bz1", "buzzer");
+        let mut pot = make_comp("p1", "potentiometer");
+        pot.max_ohms = Some(10_000);
+        let seg = make_comp("s1", "seven_segment");
+        let bb = make_comp("bb1", "breadboard");
+        let mut dp = make_comp("w1", "dupont");
+        dp.wire_color = Some("yellow".to_string());
+
+        let wires = vec![
+            crate::project::Wire { from: "board.D13".to_string(), to: "r1.a".to_string() },
+            crate::project::Wire { from: "board.D13".to_string(), to: "bz1.a".to_string() },
+            crate::project::Wire { from: "board.A0".to_string(), to: "p1.wiper".to_string() },
+            crate::project::Wire { from: "board.D7".to_string(), to: "s1.a".to_string() },
+            crate::project::Wire { from: "board.GND".to_string(), to: "bb1.a".to_string() },
+            crate::project::Wire { from: "board.D2".to_string(), to: "w1.a".to_string() },
+        ];
+        let project = project_with(vec![r1, bz, pot, seg, bb, dp], wires);
+        let state = RunState::default();
+        let out = render_runtime_frame(&project, &state);
+
+        assert!(out.contains("r1"), "resistor id missing: {}", out);
+        assert!(out.contains("470Ω"), "resistance label missing");
+        assert!(out.contains("BUZZ"), "buzzer label missing");
+        assert!(out.contains("POT"), "potentiometer label missing");
+        assert!(out.contains("7SEG"), "seven_segment label missing");
+        assert!(out.contains("BREADBOARD"), "breadboard label missing");
+        assert!(out.contains("WIRE"), "dupont label missing");
+        assert!(out.contains("yellow"), "dupont color missing");
+    }
+
+    #[test]
+    fn render_runtime_frame_phase2_with_d13_on_lights_buzzer() {
+        let bz = make_comp("bz1", "buzzer");
+        let wires = vec![crate::project::Wire {
+            from: "board.D13".to_string(),
+            to: "bz1.a".to_string(),
+        }];
+        let project = project_with(vec![bz], wires);
+        let state = RunState { d13: LedLevel::On, ..Default::default() };
+        let out = render_runtime_frame(&project, &state);
+        assert!(out.contains("BUZZ ON"), "expected buzzer ON when d13 high: {}", out);
+    }
 }
