@@ -102,6 +102,15 @@ impl Inspector for StubInspector {
             color: Color::Reset,
         });
 
+        // 5. Components(项目静态元件汇总,纯派生,Phase 2 新元件在这里可见)
+        let comp_summary = summarize_components(&project.components);
+        out.push(InspectorLine {
+            icon: if project.components.is_empty() { ' ' } else { '✓' },
+            label: "Components".to_string(),
+            value: comp_summary,
+            color: Color::Reset,
+        });
+
         // Status 段
         let status = if let Some(reason) = state.bridge_exit_reason.as_ref() {
             InspectorStatus {
@@ -124,5 +133,115 @@ impl Inspector for StubInspector {
         };
 
         (out, status)
+    }
+}
+
+/// 把 components 按 kind 聚合,返回如 "led×1, button×1, resistor×2(470Ω,10kΩ)" 的紧凑摘要。
+/// 纯派生函数,不依赖运行时状态,Phase 2 新元件直接显示。
+fn summarize_components(components: &[crate::project::Component]) -> String {
+    if components.is_empty() {
+        return "—".to_string();
+    }
+    use std::collections::BTreeMap;
+    let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
+    let mut resistor_ohms: Vec<u32> = Vec::new();
+    for c in components {
+        *counts.entry(c.kind.as_str()).or_insert(0) += 1;
+        if c.kind == "resistor" {
+            if let Some(o) = c.ohms {
+                resistor_ohms.push(o);
+            }
+        }
+    }
+    let mut parts: Vec<String> = counts
+        .iter()
+        .map(|(k, n)| {
+            if *k == "resistor" && !resistor_ohms.is_empty() {
+                let ohms_str = resistor_ohms
+                    .iter()
+                    .map(|o| format_ohms_short(*o))
+                    .collect::<Vec<_>>()
+                    .join(",");
+                format!("{}×{}({})", k, n, ohms_str)
+            } else {
+                format!("{}×{}", k, n)
+            }
+        })
+        .collect();
+    parts.sort();
+    parts.join(", ")
+}
+
+fn format_ohms_short(ohms: u32) -> String {
+    if ohms >= 1_000_000 {
+        let m = ohms as f64 / 1_000_000.0;
+        if (m - m.round()).abs() < 0.01 {
+            format!("{}MΩ", m as u32)
+        } else {
+            format!("{:.1}MΩ", m)
+        }
+    } else if ohms >= 1_000 {
+        let k = ohms as f64 / 1_000.0;
+        if (k - k.round()).abs() < 0.01 {
+            format!("{}kΩ", k as u32)
+        } else {
+            format!("{:.1}kΩ", k)
+        }
+    } else {
+        format!("{}Ω", ohms)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::project::Component;
+
+    fn comp(id: &str, kind: &str) -> Component {
+        Component {
+            id: id.to_string(),
+            kind: kind.to_string(),
+            color: None,
+            pos: None,
+            ohms: None,
+            max_ohms: None,
+            wire_color: None,
+        }
+    }
+
+    #[test]
+    fn summarize_empty() {
+        assert_eq!(summarize_components(&[]), "—");
+    }
+
+    #[test]
+    fn summarize_mixed() {
+        let comps = vec![
+            comp("l1", "led"),
+            comp("b1", "button"),
+            comp("bz1", "buzzer"),
+        ];
+        let s = summarize_components(&comps);
+        assert!(s.contains("led×1"));
+        assert!(s.contains("button×1"));
+        assert!(s.contains("buzzer×1"));
+    }
+
+    #[test]
+    fn summarize_resistor_shows_ohms() {
+        let mut r1 = comp("r1", "resistor");
+        r1.ohms = Some(470);
+        let mut r2 = comp("r2", "resistor");
+        r2.ohms = Some(10_000);
+        let s = summarize_components(&[r1, r2]);
+        assert!(s.contains("resistor×2"));
+        assert!(s.contains("470Ω"));
+        assert!(s.contains("10kΩ"));
+    }
+
+    #[test]
+    fn summarize_counts_multiple_same_kind() {
+        let comps = vec![comp("l1", "led"), comp("l2", "led"), comp("l3", "led")];
+        assert_eq!(summarize_components(&comps), "led×3");
     }
 }
