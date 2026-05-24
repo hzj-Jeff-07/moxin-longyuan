@@ -16,35 +16,64 @@ pub fn render_runtime_frame(project: &Project, state: &RunState) -> String {
     );
     let mut lines: Vec<String> = vec![header_line(&title), border_line()];
 
-    let leds_on_d13 = leds_connected_to_pin(project, 13);
-    let pin13_line = if !leds_on_d13.is_empty() {
-        let led = leds_on_d13[0];
-        let (label, marker) = format_led(led, state.d13);
-        format!(
-            "PIN13 ───●─── [LED:{} {} {}]",
-            led.id, label, marker
-        )
-    } else {
-        "PIN13 ───●─── (no LED wired)".to_string()
-    };
-    lines.push(content_line(&pin13_line));
-
-    let buttons: Vec<&Component> = project
-        .components
-        .iter()
-        .filter(|c| c.kind == "button")
-        .collect();
-    if let Some(btn) = buttons.first() {
-        if let Some((pin_n, _)) = find_button_pin(project, &btn.id) {
-            lines.push(content_line(&format!("PIN{:02} ───┐", pin_n)));
-            lines.push(content_line(&format!("          ├── [Button:{} UP]", btn.id)));
-            lines.push(content_line("GND  ────┘"));
-        } else {
-            lines.push(content_line(&format!(
-                "       [Button:{} UP (unwired)]",
-                btn.id
-            )));
-        }
+    // 遍历所有 wire 中涉及 component 的连接
+    for w in &project.wires {
+        let from = PinRef::parse(&w.from).ok();
+        let to = PinRef::parse(&w.to).ok();
+        let (pin_ref, comp_id) = match (&from, &to) {
+            (Some(PinRef::Component { id, .. }), Some(p)) if !is_component(p) => (p.clone(), id.clone()),
+            (Some(p), Some(PinRef::Component { id, .. })) if !is_component(p) => (p.clone(), id.clone()),
+            _ => continue,
+        };
+        let comp = match project.components.iter().find(|c| c.id == comp_id) {
+            Some(c) => c,
+            None => continue,
+        };
+        let pin_label = match &pin_ref {
+            PinRef::BoardDigital(n) => format!("D{}", n),
+            PinRef::BoardAnalog(n) => format!("A{}", n),
+            PinRef::BoardGnd => "GND".to_string(),
+            PinRef::Board5V => "5V".to_string(),
+            PinRef::BoardPort { port, pin } => format!("{}{}", port, pin),
+            PinRef::Component { .. } => "?".to_string(),
+        };
+        let is_d13 = matches!(&pin_ref, PinRef::BoardDigital(13));
+        let line = match comp.kind.as_str() {
+            "led" => {
+                let (label, marker) = format_led(comp, if is_d13 { state.d13 } else { LedLevel::Off });
+                format!("{} ───●─── [LED:{} {} {}]", pin_label, comp.id, label, marker)
+            }
+            "button" => {
+                let st = if state.button_pressed { "DOWN" } else { "UP" };
+                format!("{} ───●─── [Button:{} {}]", pin_label, comp.id, st)
+            }
+            "resistor" => {
+                let label = format_resistance(comp.ohms.unwrap_or(0));
+                format!("{} ───┤▮▮▮▮├─── {} {}", pin_label, label, comp.id)
+            }
+            "buzzer" => {
+                let st = if is_d13 && state.d13 == LedLevel::On { "ON" } else { "OFF" };
+                format!("{} ───●─── ♪ {} [BUZZ {}]", pin_label, comp.id, st)
+            }
+            "potentiometer" => {
+                let max = comp.max_ohms.map(format_resistance).unwrap_or_else(|| "10kΩ".to_string());
+                format!("{} ───●─── ◎ {} [POT {}]", pin_label, comp.id, max)
+            }
+            "seven_segment" => {
+                format!("{} ───●─── [8] 7SEG {}", pin_label, comp.id)
+            }
+            "breadboard" => {
+                format!("{} ───●─── ▦ BREADBOARD {}", pin_label, comp.id)
+            }
+            "dupont" => {
+                let color = comp.wire_color.as_deref().unwrap_or("red");
+                format!("{} ━━━━━━━━━━━ WIRE {} [{}]", pin_label, comp.id, color)
+            }
+            other => {
+                format!("{} ───●─── {}:{}", pin_label, other, comp.id)
+            }
+        };
+        lines.push(content_line(&line));
     }
 
     lines.push(footer_line());
@@ -99,65 +128,6 @@ fn format_led(led: &Component, level: LedLevel) -> (String, &'static str) {
         LedLevel::On => (format!("{} ON", color), "#"),
         LedLevel::Off => (format!("{} OFF", color), "."),
     }
-}
-
-fn leds_connected_to_pin(project: &Project, pin_n: u8) -> Vec<&Component> {
-    let mut found = Vec::new();
-    for w in &project.wires {
-        let from = PinRef::parse(&w.from).ok();
-        let to = PinRef::parse(&w.to).ok();
-        let touches_pin = matches!(&from, Some(PinRef::BoardDigital(n)) if *n == pin_n)
-            || matches!(&to, Some(PinRef::BoardDigital(n)) if *n == pin_n);
-        if !touches_pin {
-            continue;
-        }
-        let comp_ref = match (&from, &to) {
-            (Some(PinRef::Component { id, .. }), _) => Some(id.clone()),
-            (_, Some(PinRef::Component { id, .. })) => Some(id.clone()),
-            _ => None,
-        };
-        if let Some(id) = comp_ref {
-            if let Some(c) = project
-                .components
-                .iter()
-                .find(|c| c.id == id && c.kind == "led")
-            {
-                if !found.iter().any(|x: &&Component| x.id == c.id) {
-                    found.push(c);
-                }
-            }
-        }
-    }
-    found
-}
-
-fn find_button_pin(project: &Project, btn_id: &str) -> Option<(u8, String)> {
-    for w in &project.wires {
-        let from = PinRef::parse(&w.from).ok();
-        let to = PinRef::parse(&w.to).ok();
-        let comp_term = |p: &Option<PinRef>| -> Option<String> {
-            if let Some(PinRef::Component { id, terminal }) = p {
-                if id == btn_id {
-                    return Some(terminal.clone());
-                }
-            }
-            None
-        };
-        let board_pin = |p: &Option<PinRef>| -> Option<u8> {
-            if let Some(PinRef::BoardDigital(n)) = p {
-                Some(*n)
-            } else {
-                None
-            }
-        };
-        if let (Some(t), Some(n)) = (comp_term(&from), board_pin(&to)) {
-            return Some((n, t));
-        }
-        if let (Some(t), Some(n)) = (comp_term(&to), board_pin(&from)) {
-            return Some((n, t));
-        }
-    }
-    None
 }
 
 pub fn render_project(project: &Project) -> String {
@@ -226,6 +196,61 @@ fn led_color(name: &str) -> Color {
         "yellow" => Color::Rgb(255, 200, 40),
         "white" => Color::Rgb(240, 240, 240),
         _ => Color::Rgb(240, 240, 240),
+    }
+}
+
+/// 4-band 色环:digit1, digit2, multiplier, tolerance(金色 ±5%)。
+/// 返回 4 个 ratatui Color。
+fn resistance_color_rings(ohms: u32) -> [Color; 4] {
+    let digit_color = |d: u8| -> Color {
+        match d {
+            0 => Color::Black,
+            1 => Color::Rgb(139, 69, 19),   // brown
+            2 => Color::Rgb(255, 40, 40),    // red
+            3 => Color::Rgb(255, 165, 0),    // orange
+            4 => Color::Rgb(255, 200, 40),   // yellow
+            5 => Color::Rgb(40, 220, 80),    // green
+            6 => Color::Rgb(60, 120, 255),   // blue
+            7 => Color::Rgb(148, 0, 211),    // violet
+            8 => Color::Rgb(128, 128, 128),  // gray
+            9 => Color::Rgb(240, 240, 240),  // white
+            _ => Color::Black,
+        }
+    };
+    // 把 ohms 分解为 2位有效数字 + 10^n 乘数
+    if ohms == 0 {
+        return [Color::Black, Color::Black, Color::Black, Color::Rgb(218, 165, 32)];
+    }
+    let mut val = ohms;
+    let mut mult: u8 = 0;
+    while val >= 100 {
+        val /= 10;
+        mult += 1;
+    }
+    // val 现在是 10..99 的两位数
+    let d1 = (val / 10) as u8;
+    let d2 = (val % 10) as u8;
+    [digit_color(d1), digit_color(d2), digit_color(mult), Color::Rgb(218, 165, 32)] // gold tolerance
+}
+
+/// 把 ohms 格式化为人类可读字符串:470Ω / 10kΩ / 1MΩ / 4.7kΩ
+fn format_resistance(ohms: u32) -> String {
+    if ohms >= 1_000_000 {
+        let m = ohms as f64 / 1_000_000.0;
+        if (m - m.round()).abs() < 0.01 {
+            format!("{}MΩ", m as u32)
+        } else {
+            format!("{:.1}MΩ", m)
+        }
+    } else if ohms >= 1_000 {
+        let k = ohms as f64 / 1_000.0;
+        if (k - k.round()).abs() < 0.01 {
+            format!("{}kΩ", k as u32)
+        } else {
+            format!("{:.1}kΩ", k)
+        }
+    } else {
+        format!("{}Ω", ohms)
     }
 }
 
@@ -311,6 +336,58 @@ fn wire_row_line<'a>(row: &WireRow<'a>, state: &RunState, spec: &BoardSpec) -> L
             pin_label, row.component.id,
             if state.button_pressed { "DOWN" } else { "UP" }
         )),
+        "resistor" => {
+            let ohms = row.component.ohms.unwrap_or(0);
+            let rings = resistance_color_rings(ohms);
+            let label = format_resistance(ohms);
+            Line::from(vec![
+                Span::raw(format!(" {} ━━━┤", pin_label)),
+                Span::styled("▮", Style::default().fg(rings[0])),
+                Span::styled("▮", Style::default().fg(rings[1])),
+                Span::styled("▮", Style::default().fg(rings[2])),
+                Span::styled("▮", Style::default().fg(rings[3])),
+                Span::raw(format!("├━━━ {} {}", label, row.component.id)),
+            ])
+        }
+        "buzzer" => {
+            let is_on = spec.is_d13_pin(&row.pin) && state.d13 == LedLevel::On;
+            let (state_word, symbol, style) = if is_on {
+                ("ON ", "♪", Style::default().fg(Color::Rgb(255, 200, 40)))
+            } else {
+                ("OFF", "♪", Style::default().fg(Color::DarkGray))
+            };
+            Line::from(vec![
+                Span::raw(format!(" {} ━━━━━━━━━━━━━━━━━━━━━━ ", pin_label)),
+                Span::styled(symbol.to_string(), style),
+                Span::raw(format!(" {} [BUZZ {}]", row.component.id, state_word)),
+            ])
+        }
+        "potentiometer" => Line::from(vec![
+            Span::raw(format!(" {} ━━━━━━━━━━━━━━━━━━━━━━ ", pin_label)),
+            Span::styled("◎", Style::default().fg(Color::Rgb(60, 120, 255))),
+            Span::raw(format!(" {} [POT {}]",
+                row.component.id,
+                row.component.max_ohms.map(format_resistance).unwrap_or_else(|| "10kΩ".to_string()),
+            )),
+        ]),
+        "seven_segment" => Line::from(vec![
+            Span::raw(format!(" {} ━━━━━━━━━━━━━━━━━━━━━━ ", pin_label)),
+            Span::styled("[8]", Style::default().fg(Color::Rgb(255, 40, 40))),
+            Span::raw(format!(" 7SEG {}", row.component.id)),
+        ]),
+        "breadboard" => Line::from(format!(
+            " {} ━━━━━━━━━━━━━━━━━━━━━━ ▦ BREADBOARD {}",
+            pin_label, row.component.id
+        )),
+        "dupont" => {
+            let color_name = row.component.wire_color.as_deref().unwrap_or("red");
+            let wire_style = Style::default().fg(led_color(color_name));
+            Line::from(vec![
+                Span::raw(format!(" {} ", pin_label)),
+                Span::styled("━━━━━━━━━━━━━━━━━━━━━━━━", wire_style),
+                Span::raw(format!(" WIRE {}", row.component.id)),
+            ])
+        }
         other => Line::from(format!(
             " {} ━━━━━━━━━━━━━━━━━━━━━━ ● {}:{}",
             pin_label, other, row.component.id
@@ -392,4 +469,55 @@ pub fn render_project_styled(project: &Project, spec: &'static BoardSpec) -> Vec
     ]));
 
     lines
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resistance_color_rings_470() {
+        // 470 → val=47, mult=1 → digits 4,7 → multiplier brown(1)
+        let rings = resistance_color_rings(470);
+        assert_eq!(rings[0], Color::Rgb(255, 200, 40));  // yellow (4)
+        assert_eq!(rings[1], Color::Rgb(148, 0, 211));   // violet (7)
+        assert_eq!(rings[2], Color::Rgb(139, 69, 19));   // brown (1)
+        assert_eq!(rings[3], Color::Rgb(218, 165, 32));  // gold tolerance
+    }
+
+    #[test]
+    fn resistance_color_rings_10k() {
+        // 10_000 → 10000/10=1000/10=100/10=10 → val=10, mult=3
+        let rings = resistance_color_rings(10_000);
+        assert_eq!(rings[0], Color::Rgb(139, 69, 19));  // brown (1)
+        assert_eq!(rings[1], Color::Black);               // black (0)
+        assert_eq!(rings[2], Color::Rgb(255, 165, 0));   // orange (3)
+    }
+
+    #[test]
+    fn resistance_color_rings_1m() {
+        // 1_000_000 → val=10, mult=5 → digits 1,0 → multiplier green(5)
+        let rings = resistance_color_rings(1_000_000);
+        assert_eq!(rings[0], Color::Rgb(139, 69, 19));  // brown (1)
+        assert_eq!(rings[1], Color::Black);               // black (0)
+        assert_eq!(rings[2], Color::Rgb(40, 220, 80));   // green (5)
+    }
+
+    #[test]
+    fn format_resistance_values() {
+        assert_eq!(format_resistance(470), "470Ω");
+        assert_eq!(format_resistance(1_000), "1kΩ");
+        assert_eq!(format_resistance(10_000), "10kΩ");
+        assert_eq!(format_resistance(4_700), "4.7kΩ");
+        assert_eq!(format_resistance(1_000_000), "1MΩ");
+        assert_eq!(format_resistance(2_200_000), "2.2MΩ");
+    }
+
+    #[test]
+    fn resistance_color_rings_zero() {
+        let rings = resistance_color_rings(0);
+        assert_eq!(rings[0], Color::Black);
+        assert_eq!(rings[1], Color::Black);
+        assert_eq!(rings[2], Color::Black);
+    }
 }
