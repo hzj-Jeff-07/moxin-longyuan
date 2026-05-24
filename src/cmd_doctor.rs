@@ -32,18 +32,36 @@ fn check_file(name: &'static str, path: &std::path::Path, hint: &'static str) ->
     Check { name, status }
 }
 
+#[cfg(target_os = "macos")]
+fn hint_arm_gcc() -> &'static str { "brew install --cask gcc-arm-embedded" }
+#[cfg(target_os = "linux")]
+fn hint_arm_gcc() -> &'static str { "apt install gcc-arm-none-eabi" }
+#[cfg(target_os = "windows")]
+fn hint_arm_gcc() -> &'static str { "scoop install gcc-arm-none-eabi  # or download from https://developer.arm.com/downloads/-/gnu-rm" }
+
+#[cfg(target_os = "macos")]
+fn hint_qemu() -> &'static str { "brew install qemu" }
+#[cfg(target_os = "linux")]
+fn hint_qemu() -> &'static str { "apt install qemu-system-arm" }
+#[cfg(target_os = "windows")]
+fn hint_qemu() -> &'static str { "scoop install qemu  # or download from https://www.qemu.org/download/#windows" }
+
+#[cfg(target_os = "macos")]
+fn hint_simavr() -> &'static str { "brew install simavr" }
+#[cfg(target_os = "linux")]
+fn hint_simavr() -> &'static str { "apt install simavr" }
+#[cfg(target_os = "windows")]
+fn hint_simavr() -> &'static str { "scoop install simavr  # or download release from https://github.com/buserror/simavr" }
+
 pub fn cmd_doctor() -> anyhow::Result<()> {
     let mut all_ok = true;
 
     let checks = vec![
-        check_tool("arm-none-eabi-gcc", &["--version"],
-            "brew install --cask gcc-arm-embedded  (macOS) / apt install gcc-arm-none-eabi (Linux)"),
-        check_tool("qemu-system-arm", &["--version"],
-            "brew install qemu  (macOS) / apt install qemu-system-arm (Linux)"),
+        check_tool("arm-none-eabi-gcc", &["--version"], hint_arm_gcc()),
+        check_tool("qemu-system-arm", &["--version"], hint_qemu()),
         check_tool("arduino-cli", &["version"],
             "https://arduino.github.io/arduino-cli/latest/installation/"),
-        check_tool("simavr", &["--help"],
-            "brew install simavr  (macOS) / apt install simavr (Linux)"),
+        check_tool("simavr", &["--help"], hint_simavr()),
     ];
 
     let stm32_bridge = {
@@ -51,15 +69,17 @@ pub fn cmd_doctor() -> anyhow::Result<()> {
             .or_else(|_| std::env::var("HOME"))
             .map(std::path::PathBuf::from)
             .unwrap_or_else(|_| std::env::temp_dir());
-        let cache = home.join(".moxin").join("bridge-stm32");
+        let bridge_name = if cfg!(windows) { "bridge-stm32.exe" } else { "bridge-stm32" };
+        let cache = home.join(".moxin").join(bridge_name);
         check_file("bridge-stm32", &cache, "run: moxin build  (auto-compiled on first use)")
     };
 
     let avr_bridge = {
+        let bridge_name = if cfg!(windows) { "moxin-simavr-bridge.exe" } else { "moxin-simavr-bridge" };
         let path = std::env::current_exe()
             .ok()
-            .and_then(|p| p.parent().map(|d| d.join("moxin-simavr-bridge")))
-            .unwrap_or_else(|| std::path::PathBuf::from("moxin-simavr-bridge"));
+            .and_then(|p| p.parent().map(|d| d.join(bridge_name)))
+            .unwrap_or_else(|| std::path::PathBuf::from(bridge_name));
         check_file("bridge-avr", &path, "run: make -C bridge/")
     };
 

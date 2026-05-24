@@ -1,6 +1,6 @@
 use anyhow::{Result, anyhow, bail};
 use serde::Deserialize;
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
 use std::process::{Child, ChildStderr, ChildStdout, ChildStdin, Command, Stdio};
@@ -31,6 +31,7 @@ pub struct RunState {
     pub bridge_exited: bool,
     pub bridge_exit_reason: Option<String>,
     pub button_pressed: bool,
+    pub pin_states: HashMap<String, u8>,
 }
 
 impl Default for RunState {
@@ -49,11 +50,22 @@ impl Default for RunState {
             bridge_exited: false,
             bridge_exit_reason: None,
             button_pressed: false,
+            pin_states: HashMap::new(),
         }
     }
 }
 
 impl RunState {
+    pub fn write_state_file(&self, path: &std::path::Path) {
+        let mut map = serde_json::Map::new();
+        map.insert("ready".into(), serde_json::Value::Bool(self.ready));
+        map.insert("mcu".into(), serde_json::Value::String(self.mcu.clone()));
+        map.insert("bridge_exited".into(), serde_json::Value::Bool(self.bridge_exited));
+        let pins: HashMap<&str, u8> = self.pin_states.iter().map(|(k, v)| (k.as_str(), *v)).collect();
+        map.insert("pin_states".into(), serde_json::to_value(&pins).unwrap_or_default());
+        let _ = std::fs::write(path, serde_json::to_string_pretty(&map).unwrap_or_default());
+    }
+
     pub fn loop_time_us(&self) -> Option<u64> {
         if self.prev_pin_event_t_us == 0 || self.last_pin_event_t_us <= self.prev_pin_event_t_us {
             None
@@ -188,6 +200,7 @@ fn apply_event(
             s.last_event_t_us = t_us;
             s.prev_pin_event_t_us = s.last_pin_event_t_us;
             s.last_pin_event_t_us = t_us;
+            s.pin_states.insert(format!("{}:{}", port, bit), value);
             if is_d13(&port, bit as u32) {
                 s.d13 = if value != 0 { LedLevel::On } else { LedLevel::Off };
             }
@@ -222,7 +235,11 @@ pub(crate) fn stderr_reader_loop(stderr: ChildStderr, log_path: PathBuf) {
 }
 
 pub(crate) fn bridge_log_path() -> PathBuf {
-    if let Some(home) = std::env::var("HOME").ok().filter(|h| !h.is_empty()) {
+    let home = std::env::var("USERPROFILE")
+        .or_else(|_| std::env::var("HOME"))
+        .ok()
+        .filter(|h| !h.is_empty());
+    if let Some(home) = home {
         let dir = PathBuf::from(home).join(".cache").join("moxin");
         if std::fs::create_dir_all(&dir).is_ok() {
             return dir.join("bridge.log");
@@ -237,7 +254,8 @@ pub fn find_bridge_avr() -> Result<PathBuf> {
     }
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
-            let candidate = dir.join("moxin-simavr-bridge");
+            let name = if cfg!(windows) { "moxin-simavr-bridge.exe" } else { "moxin-simavr-bridge" };
+            let candidate = dir.join(name);
             if candidate.exists() { return Ok(candidate); }
         }
     }
@@ -251,7 +269,8 @@ pub fn find_bridge_stm32() -> Result<PathBuf> {
         return Ok(PathBuf::from(p));
     }
     let cache_dir = dirs_cache_dir()?;
-    let bridge = cache_dir.join("bridge-stm32");
+    let bridge_name = if cfg!(windows) { "bridge-stm32.exe" } else { "bridge-stm32" };
+    let bridge = cache_dir.join(bridge_name);
     if !bridge.exists() {
         let src = cache_dir.join("bridge-stm32.c");
         std::fs::write(&src, BRIDGE_STM32_SRC)?;
@@ -269,7 +288,8 @@ pub fn find_bridge_stm32() -> Result<PathBuf> {
 }
 
 fn dirs_cache_dir() -> Result<PathBuf> {
-    let base = std::env::var("HOME")
+    let base = std::env::var("USERPROFILE")
+        .or_else(|_| std::env::var("HOME"))
         .map(PathBuf::from)
         .unwrap_or_else(|_| std::env::temp_dir());
     let dir = base.join(".moxin");

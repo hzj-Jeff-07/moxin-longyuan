@@ -3,6 +3,7 @@ mod boards;
 mod cmd_doctor;
 mod cmd_install;
 mod cmd_new;
+mod cmd_status;
 mod inspector;
 mod project;
 mod render;
@@ -45,6 +46,11 @@ enum Cmd {
     Doctor,
     /// 将 moxin 安装到 PATH
     Install,
+    /// 查询引脚状态
+    Status {
+        #[arg(long)]
+        pin: String,
+    },
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -72,6 +78,7 @@ fn main() -> Result<()> {
         }
         Cmd::Doctor => cmd_doctor::cmd_doctor(),
         Cmd::Install => cmd_install::cmd_install(),
+        Cmd::Status { pin } => cmd_status::cmd_status(&pin),
         Cmd::Run { output } => {
             let cwd = std::env::current_dir()?;
             let root = project::Project::find_project_root(&cwd)?;
@@ -84,11 +91,15 @@ fn main() -> Result<()> {
             }
             let json_out = output == OutputMode::Json;
             let mut sim = board.spawn_sim(&root, &artifact, json_out)?;
+            let state_file = root.join("build").join(".moxin-state.json");
             if json_out {
                 // stdout 严格只走 JSON Lines（在 reader 线程里透传），状态提示写 stderr。
                 eprintln!("✓ simulator started ({}) — streaming JSON to stdout, Ctrl-C to stop", project.project.board);
                 loop {
-                    if sim.state.lock().map(|s| s.bridge_exited).unwrap_or(true) { break; }
+                    if let Ok(s) = sim.state.lock() {
+                        s.write_state_file(&state_file);
+                        if s.bridge_exited { break; }
+                    }
                     if !sim.is_alive() { break; }
                     std::thread::sleep(std::time::Duration::from_millis(50));
                 }
