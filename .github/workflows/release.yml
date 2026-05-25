@@ -32,8 +32,8 @@ jobs:
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Install simavr/qemu/arm gcc
-        run: sudo apt-get update && sudo apt-get install -y simavr qemu-system-arm gcc-arm-none-eabi
+      - name: Install simavr/qemu/arm gcc + bridge build deps
+        run: sudo apt-get update && sudo apt-get install -y simavr simavr-dev libelf-dev qemu-system-arm gcc-arm-none-eabi
 
       - name: Setup arduino-cli
         uses: arduino/setup-arduino-cli@v2
@@ -51,6 +51,12 @@ jobs:
 
       - name: cargo build --release
         run: cargo build --release
+
+      - name: Build simavr bridge (Linux)
+        run: |
+          make -C bridge
+          ls -la bridge/moxin-simavr-bridge
+          echo "MOXIN_BRIDGE=$GITHUB_WORKSPACE/bridge/moxin-simavr-bridge" >> $GITHUB_ENV
 
       - name: Smoke test moxin doctor (non-blocking)
         run: |
