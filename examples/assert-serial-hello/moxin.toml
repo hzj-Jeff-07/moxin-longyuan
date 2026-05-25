@@ -1,0 +1,7 @@
+[project]
+name = "assert-serial-hello"
+board = "arduino-uno"
+version = "0.2"
+
+[code]
+src = "src/main.ino"

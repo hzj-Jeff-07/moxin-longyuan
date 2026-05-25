@@ -1,0 +1,16 @@
+[project]
+name = "assert-blink-toggles"
+board = "arduino-uno"
+version = "0.2"
+
+[[component]]
+id = "led1"
+type = "led"
+color = "red"
+
+[[wire]]
+from = "board.D13"
+to = "led1.a"
+
+[code]
+src = "src/main.ino"
