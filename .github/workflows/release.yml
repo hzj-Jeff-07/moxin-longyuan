@@ -32,12 +32,14 @@ jobs:
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Install sim deps
+      - name: Install simavr/qemu/arm gcc
+        run: sudo apt-get update && sudo apt-get install -y simavr qemu-system-arm gcc-arm-none-eabi
+
+      - name: Setup arduino-cli
+        uses: arduino/setup-arduino-cli@v2
+
+      - name: Install arduino:avr core
         run: |
-          sudo apt-get update
-          sudo apt-get install -y simavr qemu-system-arm gcc-arm-none-eabi
-          # arduino-cli — install.sh 的 -b 参数被当版本号,改用 BINDIR env
-          curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/master/install.sh | BINDIR=/usr/local/bin sudo -E sh
           arduino-cli core update-index
           arduino-cli core install arduino:avr
 
