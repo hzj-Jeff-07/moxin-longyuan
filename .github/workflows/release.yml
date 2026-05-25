@@ -33,7 +33,7 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Install simavr/qemu/arm gcc + bridge build deps
-        run: sudo apt-get update && sudo apt-get install -y simavr simavr-dev libelf-dev qemu-system-arm gcc-arm-none-eabi
+        run: sudo apt-get update && sudo apt-get install -y simavr libsimavr-dev libelf-dev qemu-system-arm gcc-arm-none-eabi
 
       - name: Setup arduino-cli
         uses: arduino/setup-arduino-cli@v2
