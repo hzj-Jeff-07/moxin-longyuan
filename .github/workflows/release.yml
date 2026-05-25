@@ -1,0 +1,167 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  # 真机验证：Linux 装 simavr 跑 examples/assert-blink-toggles
+  # 这是 release 前的硬关卡，不过不让发
+  verify:
+    name: Verify (Linux + simavr)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install sim deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y simavr qemu-system-arm gcc-arm-none-eabi
+          # arduino-cli
+          curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/master/install.sh | sh -s -- -b /usr/local/bin
+          arduino-cli core update-index
+          arduino-cli core install arduino:avr
+
+      - name: cargo test
+        run: cargo test --all-targets
+
+      - name: cargo clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: cargo build --release
+        run: cargo build --release
+
+      - name: Smoke test moxin doctor
+        run: ./target/release/moxin doctor
+
+      - name: Real-sim verify (assert-blink-toggles)
+        working-directory: examples/assert-blink-toggles
+        run: |
+          ../../target/release/moxin build
+          # 后台启动 run --output json，assert 看退出码
+          ../../target/release/moxin run --output json &
+          RUN_PID=$!
+          sleep 2
+          ../../target/release/moxin assert --pin D13 --toggles --within 3s
+          ASSERT_EXIT=$?
+          kill $RUN_PID 2>/dev/null || true
+          exit $ASSERT_EXIT
+
+  # 三平台构建二进制
+  build:
+    name: Build ${{ matrix.target }}
+    needs: verify
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact: moxin
+            asset: moxin-x86_64-unknown-linux-gnu.tar.gz
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            artifact: moxin
+            asset: moxin-x86_64-apple-darwin.tar.gz
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            artifact: moxin
+            asset: moxin-aarch64-apple-darwin.tar.gz
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact: moxin.exe
+            asset: moxin-x86_64-pc-windows-msvc.zip
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-${{ matrix.target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Package (Unix)
+        if: matrix.os != 'windows-latest'
+        run: |
+          cd target/${{ matrix.target }}/release
+          tar czf ../../../${{ matrix.asset }} ${{ matrix.artifact }}
+
+      - name: Package (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          cd target/${{ matrix.target }}/release
+          Compress-Archive -Path ${{ matrix.artifact }} -DestinationPath ../../../${{ matrix.asset }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: ${{ matrix.asset }}
+
+  # 发布 release
+  release:
+    name: Publish Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Determine release notes
+        id: notes
+        run: |
+          TAG=${GITHUB_REF#refs/tags/}
+          VERSION=${TAG#v}
+          NOTES_FILE="RELEASE_NOTES_v${VERSION}.md"
+          if [ -f "$NOTES_FILE" ]; then
+            echo "file=$NOTES_FILE" >> $GITHUB_OUTPUT
+          else
+            echo "file=" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+          body_path: ${{ steps.notes.outputs.file }}
+          draft: false
+          prerelease: false
+          generate_release_notes: ${{ steps.notes.outputs.file == '' }}
