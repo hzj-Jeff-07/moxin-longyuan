@@ -1,5 +1,6 @@
 mod board;
 mod boards;
+mod cmd_assert;
 mod cmd_doctor;
 mod cmd_install;
 mod cmd_new;
@@ -10,6 +11,8 @@ mod render;
 mod shell;
 mod sim;
 mod tui;
+
+use std::process::ExitCode;
 
 use anyhow::{Result, bail};
 use clap::{Parser, Subcommand, ValueEnum};
@@ -51,6 +54,26 @@ enum Cmd {
         #[arg(long)]
         pin: String,
     },
+    /// 对 simulator 的运行结果做断言（用于 CI / AI 自动验证）
+    ///
+    /// 三种模式（互斥）：
+    ///   --pin <P> --eq HIGH|LOW [--after 1s]      引脚电平等值断言
+    ///   --pin <P> --toggles [--within 3s]         引脚翻转断言
+    ///   --serial-contains <STR> [--within 2s]     串口出现子串断言
+    Assert {
+        #[arg(long)]
+        pin: Option<String>,
+        #[arg(long)]
+        eq: Option<String>,
+        #[arg(long)]
+        after: Option<String>,
+        #[arg(long)]
+        toggles: bool,
+        #[arg(long)]
+        within: Option<String>,
+        #[arg(long = "serial-contains")]
+        serial_contains: Option<String>,
+    },
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -59,13 +82,17 @@ enum OutputMode {
     Json,
 }
 
-fn main() -> Result<()> {
+fn main() -> Result<ExitCode> {
     let cli = Cli::parse();
     match cli.command {
-        Cmd::New { name, board } => cmd_new::cmd_new(&name, &board),
+        Cmd::New { name, board } => {
+            cmd_new::cmd_new(&name, &board)?;
+            Ok(ExitCode::SUCCESS)
+        }
         Cmd::Shell { no_tui } => {
             let cwd = std::env::current_dir()?;
-            shell::cmd_shell(&cwd, no_tui)
+            shell::cmd_shell(&cwd, no_tui)?;
+            Ok(ExitCode::SUCCESS)
         }
         Cmd::Build => {
             let cwd = std::env::current_dir()?;
@@ -74,11 +101,23 @@ fn main() -> Result<()> {
             let board = boards::board_from_str(&project.project.board)?;
             let (_artifact, msg) = board.build(&root)?;
             if !msg.is_empty() { println!("{}", msg); }
-            Ok(())
+            Ok(ExitCode::SUCCESS)
         }
-        Cmd::Doctor => cmd_doctor::cmd_doctor(),
-        Cmd::Install => cmd_install::cmd_install(),
-        Cmd::Status { pin } => cmd_status::cmd_status(&pin),
+        Cmd::Doctor => {
+            cmd_doctor::cmd_doctor()?;
+            Ok(ExitCode::SUCCESS)
+        }
+        Cmd::Install => {
+            cmd_install::cmd_install()?;
+            Ok(ExitCode::SUCCESS)
+        }
+        Cmd::Status { pin } => {
+            cmd_status::cmd_status(&pin)?;
+            Ok(ExitCode::SUCCESS)
+        }
+        Cmd::Assert { pin, eq, after, toggles, within, serial_contains } => {
+            cmd_assert::cmd_assert(pin, eq, after, toggles, within, serial_contains)
+        }
         Cmd::Run { output } => {
             let cwd = std::env::current_dir()?;
             let root = project::Project::find_project_root(&cwd)?;
@@ -110,7 +149,7 @@ fn main() -> Result<()> {
                 let _ = std::io::stdin().read_line(&mut buf);
             }
             sim.stop();
-            Ok(())
+            Ok(ExitCode::SUCCESS)
         }
     }
 }
