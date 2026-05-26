@@ -280,9 +280,9 @@ phase-2-mini 完工前必须:
 - [ ] commit:`feat(status): all-pin query support`
 
 ### Step 5 — 数码管 7 段真驱动
-- [ ] `src/render.rs` seven_segment 分支改查 8 段引脚
-- [ ] 段位 → 数字查表
-- [ ] 金标快照(0-9 + 错误段位的"-")
+- [x] `src/render.rs` seven_segment 分支改查 8 段引脚
+- [x] 段位 → 数字查表
+- [x] 金标快照(0-9 + 错误段位的"-")
 - [ ] commit:`feat(seven-seg): real segment-driven display`
 
 ### Step 6 — 4 个新 examples

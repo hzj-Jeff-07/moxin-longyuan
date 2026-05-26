@@ -60,7 +60,9 @@ pub fn render_runtime_frame(project: &Project, state: &RunState, spec: &BoardSpe
                 format!("{} ───●─── ◎ {} [POT {}]", pin_label, comp.id, max)
             }
             "seven_segment" => {
-                format!("{} ───●─── [8] 7SEG {}", pin_label, comp.id)
+                let segs = seven_seg_segments(&comp.id, project, state, spec);
+                let disp = seven_seg_display(&segs);
+                format!("{} ───●─── [{}] 7SEG {}", pin_label, disp, comp.id)
             }
             "breadboard" => {
                 format!("{} ───●─── ▦ BREADBOARD {}", pin_label, comp.id)
@@ -324,6 +326,91 @@ fn pin_level(pin: &PinRef, state: &RunState, spec: &BoardSpec) -> LedLevel {
     }
 }
 
+/// 共阴 7 段查表。bits = `[a, b, c, d, e, f, g, dp]`,1=点亮。
+///
+/// - 全灭 → `" "`(待机空白)
+/// - 命中 9 种标准段位组合 → `"0"`..`"9"`
+/// - 任何非法组合(段亮了但拼不出十进制数字)→ `"-"`(防止把噪声当数字)
+/// - `dp` 不参与字符识别,由 caller 决定是否拼成 `"3."`
+fn segments_to_glyph(lit: &[bool; 8]) -> &'static str {
+    let key: u8 = (lit[0] as u8) << 6
+        | (lit[1] as u8) << 5
+        | (lit[2] as u8) << 4
+        | (lit[3] as u8) << 3
+        | (lit[4] as u8) << 2
+        | (lit[5] as u8) << 1
+        | (lit[6] as u8);
+    match key {
+        0b0000000 => " ",
+        0b1111110 => "0",
+        0b0110000 => "1",
+        0b1101101 => "2",
+        0b1111001 => "3",
+        0b0110011 => "4",
+        0b1011011 => "5",
+        0b1011111 => "6",
+        0b1110000 => "7",
+        0b1111111 => "8",
+        0b1111011 => "9",
+        _ => "-",
+    }
+}
+
+/// 扫 `project.wires`,把所有连到 `<comp_id>.seg_X` 的 board pin 找出来,
+/// 经 [`pin_level`] 取电平,装回 `[a, b, c, d, e, f, g, dp]` 8 元数组。
+///
+/// terminal 名识别:`seg_a`..`seg_g`/`seg_dp` 主名 + `a`..`g`/`dp`/`dot` 别名
+/// (与 `components/seven_segment.toml` 的 `aliases` 对齐)。
+/// 未接线 / 接的不是 board pin 的段位 → 默认 `false`(灭)。
+fn seven_seg_segments(
+    comp_id: &str,
+    project: &Project,
+    state: &RunState,
+    spec: &BoardSpec,
+) -> [bool; 8] {
+    let mut seg = [false; 8];
+    for w in &project.wires {
+        let from = PinRef::parse(&w.from).ok();
+        let to = PinRef::parse(&w.to).ok();
+        let (pin_ref, terminal) = match (from, to) {
+            (Some(PinRef::Component { id, terminal }), Some(p))
+                if id == comp_id && !is_component(&p) =>
+            {
+                (p, terminal)
+            }
+            (Some(p), Some(PinRef::Component { id, terminal }))
+                if id == comp_id && !is_component(&p) =>
+            {
+                (p, terminal)
+            }
+            _ => continue,
+        };
+        let idx = match terminal.as_str() {
+            "seg_a" | "a" => 0,
+            "seg_b" | "b" => 1,
+            "seg_c" | "c" => 2,
+            "seg_d" | "d" => 3,
+            "seg_e" | "e" => 4,
+            "seg_f" | "f" => 5,
+            "seg_g" | "g" => 6,
+            "seg_dp" | "dp" | "dot" => 7,
+            _ => continue,
+        };
+        seg[idx] = pin_level(&pin_ref, state, spec) == LedLevel::On;
+    }
+    seg
+}
+
+/// 把段位数组渲染成屏显字符串:命中数字时 dp 亮 → `"3."`;其它情况(空白/破折号)dp 忽略。
+fn seven_seg_display(segs: &[bool; 8]) -> String {
+    let g = segments_to_glyph(segs);
+    if segs[7] && g != " " && g != "-" {
+        format!("{}.", g)
+    } else {
+        g.to_string()
+    }
+}
+
 /// 把单根 wire 渲染成 mockup 风格的一行:
 ///   `PIN13 ●——[LED:led1 red ON #]`
 ///   `PIN02 ●——[Button:btn1 UP]`
@@ -331,7 +418,12 @@ fn pin_level(pin: &PinRef, state: &RunState, spec: &BoardSpec) -> LedLevel {
 ///
 /// LED 状态字符的颜色随 RunState.d13(只对 board pin 13 起效;其它 pin
 /// 在 v2a 阶段 fall back 成静态 OFF 灰)。
-fn wire_row_line<'a>(row: &WireRow<'a>, state: &RunState, spec: &BoardSpec) -> Line<'static> {
+fn wire_row_line<'a>(
+    row: &WireRow<'a>,
+    project: &Project,
+    state: &RunState,
+    spec: &BoardSpec,
+) -> Line<'static> {
     let pin_label = match &row.pin {
         PinRef::BoardDigital(n) => format!("{:<4}", format!("D{}", n)),
         PinRef::BoardAnalog(n) => format!("{:<4}", format!("A{}", n)),
@@ -395,11 +487,16 @@ fn wire_row_line<'a>(row: &WireRow<'a>, state: &RunState, spec: &BoardSpec) -> L
                 row.component.max_ohms.map(format_resistance).unwrap_or_else(|| "10kΩ".to_string()),
             )),
         ]),
-        "seven_segment" => Line::from(vec![
-            Span::raw(format!(" {} ━━━━━━━━━━━━━━━━━━━━━━ ", pin_label)),
-            Span::styled("[8]", Style::default().fg(Color::Rgb(255, 40, 40))),
-            Span::raw(format!(" 7SEG {}", row.component.id)),
-        ]),
+        "seven_segment" => {
+            let segs = seven_seg_segments(&row.component.id, project, state, spec);
+            let disp = seven_seg_display(&segs);
+            let label = format!("[{}]", disp);
+            Line::from(vec![
+                Span::raw(format!(" {} ━━━━━━━━━━━━━━━━━━━━━━ ", pin_label)),
+                Span::styled(label, Style::default().fg(Color::Rgb(255, 40, 40))),
+                Span::raw(format!(" 7SEG {}", row.component.id)),
+            ])
+        }
         "breadboard" => Line::from(format!(
             " {} ━━━━━━━━━━━━━━━━━━━━━━ ▦ BREADBOARD {}",
             pin_label, row.component.id
@@ -428,7 +525,7 @@ pub fn render_runtime_frame_styled(project: &Project, state: &RunState, spec: &'
         lines.push(Line::from(" (no wires yet — try `add led red --id led1` then `wire pin13 -> led1.a`)".to_string()));
     } else {
         for row in &rows {
-            lines.push(wire_row_line(row, state, spec));
+            lines.push(wire_row_line(row, project, state, spec));
         }
     }
 
@@ -483,7 +580,7 @@ pub fn render_project_styled(project: &Project, spec: &'static BoardSpec) -> Vec
         // idle 路径 → 没有 RunState,用 default 让 LED 走静态 OFF 渲染
         let idle_state = RunState::default();
         for row in &rows {
-            lines.push(wire_row_line(row, &idle_state, spec));
+            lines.push(wire_row_line(row, project, &idle_state, spec));
         }
     }
 
@@ -669,5 +766,150 @@ mod tests {
         let board = crate::boards::board_from_str("arduino-uno").unwrap();
         let out = render_runtime_frame(&project, &state, board.spec());
         assert!(out.contains("BUZZ ON"), "D5 buzzer should be ON: {}", out);
+    }
+
+    // ---- Step 5: 数码管 7 段真驱动 ----
+
+    /// 段位查表必须把 0-9 全部命中。bit 顺序 = [a,b,c,d,e,f,g,dp]。
+    /// 标准共阴段位码(dp 始终留 0):
+    ///   0=abcdef  1=bc      2=abdeg   3=abcdg
+    ///   4=bcfg    5=acdfg   6=acdefg  7=abc
+    ///   8=abcdefg 9=abcdfg
+    #[test]
+    fn segments_to_glyph_covers_0_through_9() {
+        let cases: &[(&[bool; 8], &str)] = &[
+            // a    b    c    d    e    f    g    dp
+            (&[true, true, true, true, true, true, false, false], "0"),
+            (&[false, true, true, false, false, false, false, false], "1"),
+            (&[true, true, false, true, true, false, true, false], "2"),
+            (&[true, true, true, true, false, false, true, false], "3"),
+            (&[false, true, true, false, false, true, true, false], "4"),
+            (&[true, false, true, true, false, true, true, false], "5"),
+            (&[true, false, true, true, true, true, true, false], "6"),
+            (&[true, true, true, false, false, false, false, false], "7"),
+            (&[true, true, true, true, true, true, true, false], "8"),
+            (&[true, true, true, true, false, true, true, false], "9"),
+        ];
+        for (segs, expect) in cases {
+            assert_eq!(
+                segments_to_glyph(segs),
+                *expect,
+                "segments {:?} should map to {}",
+                segs,
+                expect
+            );
+        }
+    }
+
+    #[test]
+    fn segments_to_glyph_blank_when_all_off() {
+        assert_eq!(segments_to_glyph(&[false; 8]), " ");
+    }
+
+    /// 任意段亮但拼不出 0-9 → "-"。
+    /// 例:只点亮 a + g(顶杠 + 中杠)不是任何数字。
+    #[test]
+    fn segments_to_glyph_dash_for_illegal_pattern() {
+        let mut segs = [false; 8];
+        segs[0] = true; // a
+        segs[6] = true; // g
+        assert_eq!(segments_to_glyph(&segs), "-");
+    }
+
+    /// dp 不影响字符识别:dp 单独亮(其它段全灭)仍是 " ",
+    /// 因为 seven_seg_display 显式跳过 " " 不拼小数点。
+    #[test]
+    fn segments_to_glyph_ignores_dp() {
+        let mut segs = [false; 8];
+        segs[7] = true; // dp only
+        assert_eq!(segments_to_glyph(&segs), " ");
+    }
+
+    /// dp 与有效数字结合 → "3."
+    #[test]
+    fn seven_seg_display_appends_dp_when_digit_present() {
+        // 3 = abcdg + dp
+        let segs = [true, true, true, true, false, false, true, true];
+        assert_eq!(seven_seg_display(&segs), "3.");
+    }
+
+    /// dp 与 "-" 一起不拼小数点(避免出 "-." 这种 garbage)
+    #[test]
+    fn seven_seg_display_skips_dp_for_dash() {
+        let mut segs = [false; 8];
+        segs[0] = true; // a — 拼不出数字
+        segs[6] = true; // g
+        segs[7] = true; // dp
+        assert_eq!(seven_seg_display(&segs), "-");
+    }
+
+    /// 扫 wires 取 8 段电平:wire 用 "seg_a".."seg_g"/"seg_dp" 主名 + a..g/dp 别名
+    /// 都能识别;接的不是 board pin 的段位保持 false。
+    #[test]
+    fn seven_seg_segments_reads_wired_pins() {
+        let seg = make_comp("s1", "seven_segment");
+        // 拼数字 "3"(a,b,c,d,g)用主名;dp 用别名 "dp" 走 alias 分支
+        let wires = vec![
+            crate::project::Wire { from: "board.D2".to_string(), to: "s1.seg_a".to_string() },
+            crate::project::Wire { from: "board.D3".to_string(), to: "s1.seg_b".to_string() },
+            crate::project::Wire { from: "board.D4".to_string(), to: "s1.seg_c".to_string() },
+            crate::project::Wire { from: "board.D5".to_string(), to: "s1.seg_d".to_string() },
+            crate::project::Wire { from: "board.D6".to_string(), to: "s1.seg_e".to_string() }, // 接但不点
+            crate::project::Wire { from: "board.D7".to_string(), to: "s1.seg_f".to_string() }, // 接但不点
+            crate::project::Wire { from: "board.D8".to_string(), to: "s1.seg_g".to_string() },
+            crate::project::Wire { from: "board.D9".to_string(), to: "s1.dp".to_string() },
+        ];
+        let project = project_with(vec![seg], wires);
+
+        let mut state = RunState::default();
+        // a=D2/PD2, b=D3/PD3, c=D4/PD4, d=D5/PD5, g=D8/PB0
+        state.pin_states.insert("D:2".to_string(), 1);
+        state.pin_states.insert("D:3".to_string(), 1);
+        state.pin_states.insert("D:4".to_string(), 1);
+        state.pin_states.insert("D:5".to_string(), 1);
+        state.pin_states.insert("B:0".to_string(), 1);
+
+        let board = crate::boards::board_from_str("arduino-uno").unwrap();
+        let segs = seven_seg_segments("s1", &project, &state, board.spec());
+        assert_eq!(segs, [true, true, true, true, false, false, true, false],
+            "expected '3' pattern segments");
+        assert_eq!(segments_to_glyph(&segs), "3");
+    }
+
+    /// 没接线的段位默认灭 → 整体仍是空白。
+    #[test]
+    fn seven_seg_segments_unwired_defaults_off() {
+        let seg = make_comp("s1", "seven_segment");
+        let project = project_with(vec![seg], vec![]);
+        let state = RunState::default();
+        let board = crate::boards::board_from_str("arduino-uno").unwrap();
+        let segs = seven_seg_segments("s1", &project, &state, board.spec());
+        assert_eq!(segs, [false; 8]);
+        assert_eq!(segments_to_glyph(&segs), " ");
+    }
+
+    /// 集成回归:render_runtime_frame 在 D2/D3/D4/D5/D8 全亮时输出 "[3]" 而不是 "[8]"。
+    /// 这是 Phase 2-mini Step 5 拔掉硬编码 "[8]" 的证据。
+    #[test]
+    fn render_runtime_frame_seven_seg_shows_real_digit() {
+        let seg = make_comp("s1", "seven_segment");
+        let wires = vec![
+            crate::project::Wire { from: "board.D2".to_string(), to: "s1.seg_a".to_string() },
+            crate::project::Wire { from: "board.D3".to_string(), to: "s1.seg_b".to_string() },
+            crate::project::Wire { from: "board.D4".to_string(), to: "s1.seg_c".to_string() },
+            crate::project::Wire { from: "board.D5".to_string(), to: "s1.seg_d".to_string() },
+            crate::project::Wire { from: "board.D8".to_string(), to: "s1.seg_g".to_string() },
+        ];
+        let project = project_with(vec![seg], wires);
+        let mut state = RunState::default();
+        state.pin_states.insert("D:2".to_string(), 1);
+        state.pin_states.insert("D:3".to_string(), 1);
+        state.pin_states.insert("D:4".to_string(), 1);
+        state.pin_states.insert("D:5".to_string(), 1);
+        state.pin_states.insert("B:0".to_string(), 1);
+        let board = crate::boards::board_from_str("arduino-uno").unwrap();
+        let out = render_runtime_frame(&project, &state, board.spec());
+        assert!(out.contains("[3] 7SEG s1"), "expected real '3' display: {}", out);
+        assert!(!out.contains("[8] 7SEG"), "should no longer hardcode [8]: {}", out);
     }
 }
