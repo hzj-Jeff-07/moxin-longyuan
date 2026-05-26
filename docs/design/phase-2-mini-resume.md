@@ -34,8 +34,8 @@ cargo test && cargo clippy --all-targets -- -D warnings
 
 > ⚠️ 每次推进一个 Step,**手动更新这一节** + RFC 勾选框。
 
-- **当前位置**:Step 5 编码完成(数码管 7 段真驱动),Step 6(4 个新 examples)未开始
-- **最后一个 commit**(本分支):3114f87 `feat(status): all-pin query support`;待 commit `feat(seven-seg): real segment-driven display`
+- **当前位置**:Step 5 编码完成(数码管 7 段真驱动 commit f2eb736 已 push origin/phase-2-mini),Step 6(4 个新 examples)未开始
+- **最后一个 commit**(本分支):f2eb736 `feat(seven-seg): real segment-driven display`(已 push)
 - **最后一次 `cargo test`**:119 passed / 0 failed(2026-05-26 phase-2-mini 分支,新增 9 个 seven_seg 单测)
 - **最后一次 `cargo clippy --all-targets -- -D warnings`**:0 警告
 - **CI 状态**:phase-2-mini 本地领先 origin,未 push;合并时再触发 release pipeline 完整验证
