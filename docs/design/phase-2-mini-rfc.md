@@ -257,11 +257,11 @@ phase-2-mini 完工前必须:
 - [x] 写本 RFC
 
 ### Step 1 — bridge 全 GPIO
-- [ ] 改 `bridge/moxin-simavr-bridge.c`,hook 全 PORTB/C/D
-- [ ] 本地编译 bridge,跑 blink 看是否仍输出 D13 事件(不退化)
-- [ ] 跑 multi-pin 测试代码,看是否输出 D2-D7 事件
-- [ ] commit:`feat(bridge): hook all PORTB/C/D pins`
-- [ ] **CI 必须绿** — D13 verify 通过
+- [x] 改 `bridge/moxin-simavr-bridge.c`,hook 全 PORTB/C/D
+- [ ] 本地编译 bridge,跑 blink 看是否仍输出 D13 事件(不退化)— **延后:Windows 无 make/gcc,合并时通过 release pipeline verify 统一验证**
+- [ ] 跑 multi-pin 测试代码,看是否输出 D2-D7 事件 — **延后同上**
+- [x] commit:`feat(bridge): hook all PORTB/C/D pins`(b5acebf)
+- [ ] **CI 必须绿** — D13 verify 通过(等合并时统一跑 release pipeline)
 
 ### Step 2 — Rust 侧 PinStates
 - [ ] `src/sim.rs` 加 `PinStates` 类型

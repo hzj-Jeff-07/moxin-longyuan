@@ -34,11 +34,12 @@ cargo test && cargo clippy --all-targets -- -D warnings
 
 > ⚠️ 每次推进一个 Step,**手动更新这一节** + RFC 勾选框。
 
-- **当前位置**:Step 1(bridge 全 GPIO)未开始
-- **最后一个 commit**(本分支):无(刚建分支)
-- **最后一次 `cargo test`**:`v0.3.0` 时全过(94 个测试)
-- **CI 状态**:main = 绿,phase-2-mini 暂未触发 release pipeline(只触发 ci.yml)
-- **未解决问题**:无
+- **当前位置**:Step 1 编码完成,Step 2(Rust PinStates)未开始
+- **最后一个 commit**(本分支):`b5acebf feat(bridge): hook all PORTB/C/D GPIO pins`
+- **最后一次 `cargo test`**:94 passed / 0 failed(2026-05-26 phase-2-mini 分支)
+- **最后一次 `cargo clippy --all-targets -- -D warnings`**:0 警告
+- **CI 状态**:phase-2-mini 已 push,合并时再触发 release pipeline 完整验证
+- **未解决问题**:Windows 本地无法编译 bridge(无 make/gcc),所有 bridge 真编译验证由 Linux CI 兜底
 
 ---
 
@@ -105,4 +106,5 @@ git reset --hard v0.3.0-stable
 
 > 每次有实质推进,在这里加一行。
 
+- **2026-05-26** — Step 1 编码完成:bridge 全 PORTB/C/D hook(commit b5acebf)。cargo test 94 过、clippy 0 警告。bridge 编译验证延后到合并时由 release pipeline 兜底。
 - **2026-05-26** — RFC + 备份分支 + 工作分支建好,Step 0 完成,Step 1 待启动。
