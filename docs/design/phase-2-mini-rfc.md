@@ -264,9 +264,9 @@ phase-2-mini 完工前必须:
 - [ ] **CI 必须绿** — D13 verify 通过(等合并时统一跑 release pipeline)
 
 ### Step 2 — Rust 侧 PinStates
-- [ ] `src/sim.rs` 加 `PinStates` 类型
-- [ ] 加 `get_arduino_pin` 映射 + 单测
-- [ ] 接入事件循环,加批处理
+- [x] `src/sim.rs` 加 `PinStates` 类型
+- [x] 加 `get_arduino_pin` 映射 + 单测
+- [ ] 接入事件循环,加批处理 — **延后(YAGNI)**:reader 独立线程逐行 apply,TUI 16ms 采样快照,架构本身非阻塞;Step 3 接入渲染后再观察是否需要批处理
 - [ ] commit:`feat(sim): full GPIO state tracking`
 
 ### Step 3 — 渲染接全 GPIO
