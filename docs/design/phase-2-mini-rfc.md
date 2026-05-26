@@ -270,9 +270,9 @@ phase-2-mini 完工前必须:
 - [ ] commit:`feat(sim): full GPIO state tracking`
 
 ### Step 3 — 渲染接全 GPIO
-- [ ] `src/render.rs` LED 改查 wire + PinStates
-- [ ] 老的 D13 硬编码删掉
-- [ ] 金标快照测试加上
+- [x] `src/render.rs` LED 改查 wire + PinStates
+- [x] 老的 D13 硬编码删掉
+- [x] 金标快照测试加上(D7 ON / D2 OFF / D5 buzzer ON)
 - [ ] commit:`feat(render): all LEDs reflect real pin state`
 
 ### Step 4 — `moxin status --pin <name>` 全引脚可查

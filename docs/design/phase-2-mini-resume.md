@@ -34,13 +34,13 @@ cargo test && cargo clippy --all-targets -- -D warnings
 
 > ⚠️ 每次推进一个 Step,**手动更新这一节** + RFC 勾选框。
 
-- **当前位置**:Step 2 编码完成(PinStates + 映射 + 4 单测),Step 3(渲染接全 GPIO)未开始
-- **最后一个 commit**(本分支):待 commit `feat(sim): full GPIO state tracking`
-- **最后一次 `cargo test`**:98 passed / 0 failed(2026-05-26 phase-2-mini 分支,新增 4 个 PinStates 单测)
+- **当前位置**:Step 3 编码完成(`pin_level()` helper + plain/styled 渲染接全 GPIO + 2 新单测),Step 4(`moxin status --pin` 全引脚)未开始
+- **最后一个 commit**(本分支):a12c622 `feat(sim): full GPIO state tracking`(本地);待 commit `feat(render): all LEDs reflect real pin state`
+- **最后一次 `cargo test`**:100 passed / 0 failed(2026-05-26 phase-2-mini 分支,新增 D7/D2 LED + D5 buzzer 真状态单测)
 - **最后一次 `cargo clippy --all-targets -- -D warnings`**:0 警告
-- **CI 状态**:phase-2-mini 已 push,合并时再触发 release pipeline 完整验证
+- **CI 状态**:phase-2-mini 本地领先 origin,未 push;合并时再触发 release pipeline 完整验证
 - **未解决问题**:Windows 本地无法编译 bridge(无 make/gcc),所有 bridge 真编译验证由 Linux CI 兜底
-- **批处理延后说明**:reader 独立线程 + TUI 16ms 采样快照,架构非阻塞;Step 3 接入渲染后再观察是否需要
+- **批处理结论**:Step 3 接入渲染后未触发性能问题(TUI 16ms 采样自然降频),YAGNI 决策维持
 
 ---
 
@@ -107,6 +107,7 @@ git reset --hard v0.3.0-stable
 
 > 每次有实质推进,在这里加一行。
 
-- **2026-05-26** — Step 2 编码完成:`RunState` 加 `get_pin/get_arduino_digital/get_arduino_analog` + 静态映射函数,98 测试过、clippy 0 警告。批处理按 YAGNI 延后到 Step 3 后观察。
+- **2026-05-26** — Step 3 编码完成:`render.rs` 加 `pin_level(pin, state, spec) -> LedLevel` helper,plain `render_runtime_frame` + styled `wire_row_line` 全部接入(LED + buzzer);拔掉 `is_d13` 硬编码;`render_runtime_frame` 签名加 `spec: &BoardSpec` 参数,`shell.rs:238` caller 同步;新增 D7 ON / D2 OFF / D5 buzzer ON 三条单测;sim.rs PinStates 链清除 `#[allow(dead_code)]`。100 测试过、clippy 0 警告。
+- **2026-05-26** — Step 2 编码完成(commit a12c622):`RunState` 加 `get_pin/get_arduino_digital/get_arduino_analog` + 静态映射函数,98 测试过、clippy 0 警告。批处理按 YAGNI 延后到 Step 3 后观察。
 - **2026-05-26** — Step 1 编码完成:bridge 全 PORTB/C/D hook(commit b5acebf)。cargo test 94 过、clippy 0 警告。bridge 编译验证延后到合并时由 release pipeline 兜底。
 - **2026-05-26** — RFC + 备份分支 + 工作分支建好,Step 0 完成,Step 1 待启动。

@@ -77,9 +77,6 @@ impl RunState {
     /// 查 (port, bit) 引脚状态 — 数据来源是 bridge 的 `pin` 事件,
     /// key 与 `apply_event` 写入格式保持一致(`"B:5"`)。
     /// 没收到过该引脚的事件 → `None`(对应 `moxin status` 的 `UNKNOWN`)。
-    ///
-    /// 注:Step 2 独立 commit,调用点在 Step 3(render.rs)/ Step 4(cmd_status.rs)。
-    #[allow(dead_code)]
     pub fn get_pin(&self, port: char, bit: u8) -> Option<bool> {
         self.pin_states
             .get(&format!("{}:{}", port, bit))
@@ -90,7 +87,6 @@ impl RunState {
     /// D0-D7   → PORTD bit 0-7
     /// D8-D13  → PORTB bit 0-5
     /// 越界返回 `None`(D14+ 不存在)。
-    #[allow(dead_code)]
     pub fn arduino_digital_to_port_bit(d_pin: u8) -> Option<(char, u8)> {
         match d_pin {
             0..=7 => Some(('D', d_pin)),
@@ -102,7 +98,6 @@ impl RunState {
     /// 把 Arduino Uno 的模拟引脚号 (A0-A5) 映射到 PORTC bit 0-5。
     /// 当前阶段 Phase 2-mini 把 Ax 也当数字引脚看(读 GPIO 电平),
     /// ADC 真采样推到 v0.5.0。
-    #[allow(dead_code)]
     pub fn arduino_analog_to_port_bit(a_pin: u8) -> Option<(char, u8)> {
         match a_pin {
             0..=5 => Some(('C', a_pin)),
@@ -111,14 +106,12 @@ impl RunState {
     }
 
     /// 查 D 引脚(D0-D13)电平。
-    #[allow(dead_code)]
     pub fn get_arduino_digital(&self, d_pin: u8) -> Option<bool> {
         let (port, bit) = Self::arduino_digital_to_port_bit(d_pin)?;
         self.get_pin(port, bit)
     }
 
     /// 查 A 引脚(A0-A5)电平(数字视角)。
-    #[allow(dead_code)]
     pub fn get_arduino_analog(&self, a_pin: u8) -> Option<bool> {
         let (port, bit) = Self::arduino_analog_to_port_bit(a_pin)?;
         self.get_pin(port, bit)

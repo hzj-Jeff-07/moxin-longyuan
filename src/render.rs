@@ -8,7 +8,7 @@ use ratatui::text::{Line, Span};
 const FRAME_INNER_W: usize = 48; // 内容区宽度(不含两侧 │)
 
 /// 渲染运行时 ASCII 一帧 (`show` 命令,piped / --no-tui 模式)
-pub fn render_runtime_frame(project: &Project, state: &RunState) -> String {
+pub fn render_runtime_frame(project: &Project, state: &RunState, spec: &BoardSpec) -> String {
     let elapsed = state.started.elapsed().as_secs_f64();
     let title = format!(
         " moxin · {} · t={:06.3}s ",
@@ -37,10 +37,10 @@ pub fn render_runtime_frame(project: &Project, state: &RunState) -> String {
             PinRef::BoardPort { port, pin } => format!("{}{}", port, pin),
             PinRef::Component { .. } => "?".to_string(),
         };
-        let is_d13 = matches!(&pin_ref, PinRef::BoardDigital(13));
+        let level = pin_level(&pin_ref, state, spec);
         let line = match comp.kind.as_str() {
             "led" => {
-                let (label, marker) = format_led(comp, if is_d13 { state.d13 } else { LedLevel::Off });
+                let (label, marker) = format_led(comp, level);
                 format!("{} ───●─── [LED:{} {} {}]", pin_label, comp.id, label, marker)
             }
             "button" => {
@@ -52,7 +52,7 @@ pub fn render_runtime_frame(project: &Project, state: &RunState) -> String {
                 format!("{} ───┤▮▮▮▮├─── {} {}", pin_label, label, comp.id)
             }
             "buzzer" => {
-                let st = if is_d13 && state.d13 == LedLevel::On { "ON" } else { "OFF" };
+                let st = if level == LedLevel::On { "ON" } else { "OFF" };
                 format!("{} ───●─── ♪ {} [BUZZ {}]", pin_label, comp.id, st)
             }
             "potentiometer" => {
@@ -299,6 +299,31 @@ fn is_component(p: &PinRef) -> bool {
     matches!(p, PinRef::Component { .. })
 }
 
+/// 把 (PinRef, RunState, BoardSpec) → LedLevel(渲染层用)。
+///
+/// 优先级:
+/// 1. `spec.is_d13_pin(pin)` → 走 `state.d13`(保 stm32 D13 兼容,bridge 协议端口名不同)
+/// 2. Arduino 数字引脚 D0-D13 → Step 2 的 `arduino_digital_to_port_bit` + `state.get_pin`
+/// 3. Arduino 模拟引脚 A0-A5 → 同上(GPIO 视角,ADC 真采样推到 v0.5.0)
+/// 4. 其它(stm32 BoardPort 非 D13 / GND / 5V / Component / 没事件)→ `Off`
+///
+/// 没收到过事件 = `Off`(保持老 UX:静态灰)。下一阶段如果要区分
+/// `UNKNOWN`,改返回 `Option<LedLevel>` 即可,签名独立可演进。
+fn pin_level(pin: &PinRef, state: &RunState, spec: &BoardSpec) -> LedLevel {
+    if spec.is_d13_pin(pin) {
+        return state.d13;
+    }
+    let level = match pin {
+        PinRef::BoardDigital(n) => state.get_arduino_digital(*n),
+        PinRef::BoardAnalog(n) => state.get_arduino_analog(*n),
+        _ => None,
+    };
+    match level {
+        Some(true) => LedLevel::On,
+        _ => LedLevel::Off,
+    }
+}
+
 /// 把单根 wire 渲染成 mockup 风格的一行:
 ///   `PIN13 ●——[LED:led1 red ON #]`
 ///   `PIN02 ●——[Button:btn1 UP]`
@@ -319,7 +344,7 @@ fn wire_row_line<'a>(row: &WireRow<'a>, state: &RunState, spec: &BoardSpec) -> L
     match row.component.kind.as_str() {
         "led" => {
             let color_name = row.component.color.as_deref().unwrap_or("red");
-            let level = if spec.is_d13_pin(&row.pin) { state.d13 } else { LedLevel::Off };
+            let level = pin_level(&row.pin, state, spec);
             let (state_word, marker, marker_style) = match level {
                 LedLevel::On  => ("ON ", "●", Style::default().fg(led_color(color_name))),
                 LedLevel::Off => ("OFF", "○", Style::default().fg(Color::DarkGray)),
@@ -350,7 +375,7 @@ fn wire_row_line<'a>(row: &WireRow<'a>, state: &RunState, spec: &BoardSpec) -> L
             ])
         }
         "buzzer" => {
-            let is_on = spec.is_d13_pin(&row.pin) && state.d13 == LedLevel::On;
+            let is_on = pin_level(&row.pin, state, spec) == LedLevel::On;
             let (state_word, symbol, style) = if is_on {
                 ("ON ", "♪", Style::default().fg(Color::Rgb(255, 200, 40)))
             } else {
@@ -569,7 +594,8 @@ mod tests {
         ];
         let project = project_with(vec![r1, bz, pot, seg, bb, dp], wires);
         let state = RunState::default();
-        let out = render_runtime_frame(&project, &state);
+        let board = crate::boards::board_from_str("arduino-uno").unwrap();
+        let out = render_runtime_frame(&project, &state, board.spec());
 
         assert!(out.contains("r1"), "resistor id missing: {}", out);
         assert!(out.contains("470Ω"), "resistance label missing");
@@ -590,7 +616,58 @@ mod tests {
         }];
         let project = project_with(vec![bz], wires);
         let state = RunState { d13: LedLevel::On, ..Default::default() };
-        let out = render_runtime_frame(&project, &state);
+        let board = crate::boards::board_from_str("arduino-uno").unwrap();
+        let out = render_runtime_frame(&project, &state, board.spec());
         assert!(out.contains("BUZZ ON"), "expected buzzer ON when d13 high: {}", out);
+    }
+
+    /// Phase 2-mini Step 3 关键回归:非 D13 引脚的 LED 渲染也要跟着真 GPIO 走,
+    /// 不再静态 OFF。D7 高 → "red ON #";D2 没事件 → "red OFF ."。
+    /// 这条测试就是任务书红线"只有 D13 真实仿真"被拔掉的证据。
+    #[test]
+    fn render_runtime_frame_non_d13_led_reflects_pin_state() {
+        let mut led_d7 = make_comp("led7", "led");
+        led_d7.color = Some("red".to_string());
+        let mut led_d2 = make_comp("led2", "led");
+        led_d2.color = Some("red".to_string());
+        let wires = vec![
+            crate::project::Wire { from: "board.D7".to_string(), to: "led7.a".to_string() },
+            crate::project::Wire { from: "board.D2".to_string(), to: "led2.a".to_string() },
+        ];
+        let project = project_with(vec![led_d7, led_d2], wires);
+
+        // 模拟 bridge 推送 D7(PORTD bit 7)拉高;D2 始终静默 → 没事件
+        let mut state = RunState::default();
+        state.pin_states.insert("D:7".to_string(), 1);
+
+        let board = crate::boards::board_from_str("arduino-uno").unwrap();
+        let out = render_runtime_frame(&project, &state, board.spec());
+
+        assert!(
+            out.contains("led7 red ON"),
+            "D7 LED should show ON when pin_states has D:7=1: {}",
+            out
+        );
+        assert!(
+            out.contains("led2 red OFF"),
+            "D2 LED should show OFF without pin event: {}",
+            out
+        );
+    }
+
+    /// Buzzer 也要跟非 D13 引脚的真状态走。D5=1 → BUZZ ON。
+    #[test]
+    fn render_runtime_frame_non_d13_buzzer_reflects_pin_state() {
+        let bz = make_comp("bz5", "buzzer");
+        let wires = vec![crate::project::Wire {
+            from: "board.D5".to_string(),
+            to: "bz5.a".to_string(),
+        }];
+        let project = project_with(vec![bz], wires);
+        let mut state = RunState::default();
+        state.pin_states.insert("D:5".to_string(), 1);
+        let board = crate::boards::board_from_str("arduino-uno").unwrap();
+        let out = render_runtime_frame(&project, &state, board.spec());
+        assert!(out.contains("BUZZ ON"), "D5 buzzer should be ON: {}", out);
     }
 }
