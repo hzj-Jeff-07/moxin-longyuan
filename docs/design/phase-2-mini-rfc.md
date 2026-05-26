@@ -276,7 +276,7 @@ phase-2-mini 完工前必须:
 - [ ] commit:`feat(render): all LEDs reflect real pin state`
 
 ### Step 4 — `moxin status --pin <name>` 全引脚可查
-- [ ] D0-D13 / A0-A5 全部能查
+- [x] D0-D13 / A0-A5 全部能查
 - [ ] commit:`feat(status): all-pin query support`
 
 ### Step 5 — 数码管 7 段真驱动
