@@ -137,59 +137,32 @@ impl Inspector for StubInspector {
 }
 
 /// 把 components 按 kind 聚合,返回如 "led×1, button×1, resistor×2(470Ω,10kΩ)" 的紧凑摘要。
-/// 纯派生函数,不依赖运行时状态,Phase 2 新元件直接显示。
+/// 纯派生函数,不依赖运行时状态。每个 kind 的扩展信息由对应 ComponentDef::inspector_extra 提供。
 fn summarize_components(components: &[crate::project::Component]) -> String {
     if components.is_empty() {
         return "—".to_string();
     }
     use std::collections::BTreeMap;
+    let reg = crate::components::registry();
     let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
-    let mut resistor_ohms: Vec<u32> = Vec::new();
+    let mut extras: BTreeMap<&str, Vec<String>> = BTreeMap::new();
     for c in components {
         *counts.entry(c.kind.as_str()).or_insert(0) += 1;
-        if c.kind == "resistor" {
-            if let Some(o) = c.ohms {
-                resistor_ohms.push(o);
+        if let Some(def) = reg.resolve(&c.kind) {
+            if let Some(extra) = def.inspector_extra(c) {
+                extras.entry(c.kind.as_str()).or_default().push(extra);
             }
         }
     }
     let mut parts: Vec<String> = counts
         .iter()
-        .map(|(k, n)| {
-            if *k == "resistor" && !resistor_ohms.is_empty() {
-                let ohms_str = resistor_ohms
-                    .iter()
-                    .map(|o| format_ohms_short(*o))
-                    .collect::<Vec<_>>()
-                    .join(",");
-                format!("{}×{}({})", k, n, ohms_str)
-            } else {
-                format!("{}×{}", k, n)
-            }
+        .map(|(k, n)| match extras.get(k) {
+            Some(list) if !list.is_empty() => format!("{}×{}({})", k, n, list.join(",")),
+            _ => format!("{}×{}", k, n),
         })
         .collect();
     parts.sort();
     parts.join(", ")
-}
-
-fn format_ohms_short(ohms: u32) -> String {
-    if ohms >= 1_000_000 {
-        let m = ohms as f64 / 1_000_000.0;
-        if (m - m.round()).abs() < 0.01 {
-            format!("{}MΩ", m as u32)
-        } else {
-            format!("{:.1}MΩ", m)
-        }
-    } else if ohms >= 1_000 {
-        let k = ohms as f64 / 1_000.0;
-        if (k - k.round()).abs() < 0.01 {
-            format!("{}kΩ", k as u32)
-        } else {
-            format!("{:.1}kΩ", k)
-        }
-    } else {
-        format!("{}Ω", ohms)
-    }
 }
 
 #[cfg(test)]

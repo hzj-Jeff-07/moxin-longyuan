@@ -1,6 +1,6 @@
 use crate::board::PinRef;
 use crate::boards::{BoardImpl, board_from_str};
-use crate::project::{Component, Project, Wire};
+use crate::project::{Project, Wire};
 use crate::render::{render_project, render_runtime_frame};
 use crate::sim::RunningSim;
 use anyhow::{Context, Result, anyhow, bail};
@@ -161,35 +161,12 @@ impl Shell {
         }
         let id = id.ok_or_else(|| anyhow!("--id required"))?;
 
-        let comp = match kind.as_str() {
-            "led" => {
-                let color = positional.first().cloned().unwrap_or_else(|| "red".into());
-                Component { id: id.clone(), kind: "led".into(), color: Some(color), pos: None, ohms: None, max_ohms: None, wire_color: None }
-            }
-            "button" | "btn" => Component { id: id.clone(), kind: "button".into(), color: None, pos: None, ohms: None, max_ohms: None, wire_color: None },
-            "resistor" | "res" => {
-                let raw = positional.first().ok_or_else(|| anyhow!("resistor requires ohms value (e.g. `add resistor 10k --id r1`)"))?;
-                let ohms = parse_resistance(raw)?;
-                Component { id: id.clone(), kind: "resistor".into(), color: None, pos: None, ohms: Some(ohms), max_ohms: None, wire_color: None }
-            }
-            "buzzer" | "buzz" => Component { id: id.clone(), kind: "buzzer".into(), color: None, pos: None, ohms: None, max_ohms: None, wire_color: None },
-            "potentiometer" | "pot" => {
-                let max_ohms = positional.first().map(|r| parse_resistance(r)).transpose()?.unwrap_or(10_000);
-                Component { id: id.clone(), kind: "potentiometer".into(), color: None, pos: None, ohms: None, max_ohms: Some(max_ohms), wire_color: None }
-            }
-            "seven_segment" | "7seg" => Component { id: id.clone(), kind: "seven_segment".into(), color: None, pos: None, ohms: None, max_ohms: None, wire_color: None },
-            "breadboard" | "bb" => Component { id: id.clone(), kind: "breadboard".into(), color: None, pos: None, ohms: None, max_ohms: None, wire_color: None },
-            "dupont" | "wire" | "jumper" => {
-                let wire_color = positional.first().cloned();
-                Component { id: id.clone(), kind: "dupont".into(), color: None, pos: None, ohms: None, max_ohms: None, wire_color }
-            }
-            other => bail!("unknown component type: {}", other),
-        };
-
-        let display = match (&comp.color, comp.kind.as_str()) {
-            (Some(c), "led") => format!("{} ({} led)", id, c),
-            _ => id.clone(),
-        };
+        let reg = crate::components::registry();
+        let def = reg
+            .resolve(&kind)
+            .ok_or_else(|| anyhow!("unknown component type: {}", kind))?;
+        let comp = def.build(id, &positional)?;
+        let display = def.display_after_add(&comp);
 
         self.project.add_component(comp)?;
         self.save_project()?;
@@ -299,23 +276,6 @@ impl Shell {
     }
 }
 
-fn parse_resistance(s: &str) -> Result<u32> {
-    let s = s.trim().to_lowercase();
-    let (num_part, multiplier) = if let Some(n) = s.strip_suffix('m') {
-        (n, 1_000_000u64)
-    } else if let Some(n) = s.strip_suffix('k') {
-        (n, 1_000u64)
-    } else {
-        (s.as_str(), 1u64)
-    };
-    let val: f64 = num_part.parse().map_err(|_| anyhow!("invalid resistance value: {}", s))?;
-    let ohms = (val * multiplier as f64) as u32;
-    if ohms == 0 {
-        bail!("resistance must be > 0");
-    }
-    Ok(ohms)
-}
-
 fn help_text() -> String {
     String::from(
         "moxin shell commands:
@@ -409,32 +369,32 @@ mod tests {
 
     #[test]
     fn parse_resistance_plain_ohms() {
-        assert_eq!(parse_resistance("470").unwrap(), 470);
+        assert_eq!(crate::components::util::parse_resistance("470").unwrap(), 470);
     }
 
     #[test]
     fn parse_resistance_kilo() {
-        assert_eq!(parse_resistance("10k").unwrap(), 10_000);
+        assert_eq!(crate::components::util::parse_resistance("10k").unwrap(), 10_000);
     }
 
     #[test]
     fn parse_resistance_fractional_kilo() {
-        assert_eq!(parse_resistance("4.7k").unwrap(), 4700);
+        assert_eq!(crate::components::util::parse_resistance("4.7k").unwrap(), 4700);
     }
 
     #[test]
     fn parse_resistance_mega() {
-        assert_eq!(parse_resistance("1m").unwrap(), 1_000_000);
+        assert_eq!(crate::components::util::parse_resistance("1m").unwrap(), 1_000_000);
     }
 
     #[test]
     fn parse_resistance_zero_is_error() {
-        assert!(parse_resistance("0").is_err());
+        assert!(crate::components::util::parse_resistance("0").is_err());
     }
 
     #[test]
     fn parse_resistance_invalid_is_error() {
-        assert!(parse_resistance("abc").is_err());
+        assert!(crate::components::util::parse_resistance("abc").is_err());
     }
 
     #[test]
