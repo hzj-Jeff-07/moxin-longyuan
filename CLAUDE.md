@@ -210,6 +210,5 @@ fn run_blink_e2e() {
 - `sim.rs::bridge_log_path` / `arduino_uno.rs::dirs_home` 用 `HOME` env,Windows 上为空 → 需加 `USERPROFILE` fallback
 - `find_bridge_avr` 同目录查找未加 `.exe` 后缀,Windows 找不到
 - `cmd_install` 当前 macOS-only,其它平台占位
-- 只有 D13 真实仿真,其它引脚静态 OFF — 不在 Phase 1 修
 
 每月复审本文件,删过时条目。

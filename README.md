@@ -6,10 +6,10 @@
 
 ## 当前状态
 
-v0.1.0-demo，两块板子可以跑通：
+v0.4.0,两块板子可以跑通:
 
-- **Arduino Uno**（通过 simavr）：GPIO、UART、按钮输入
-- **STM32F405**（通过 QEMU netduinoplus2）：GPIO、UART
+- **Arduino Uno**(通过 simavr):全 PORTB/C/D GPIO、UART、按钮输入、数码管 8 段真驱动
+- **STM32F405**(通过 QEMU netduinoplus2):GPIO、UART
 
 四面板 TUI 界面：
 
@@ -110,21 +110,27 @@ Ctrl-C 停止；bridge 自行退出时也会自动结束。
 
 ```
 examples/
-  stm32-blink/     STM32F405 blink（推荐入门）
-  led-control/     Arduino Uno，双 LED + 按钮 + serial 控制
-  button-counter/  Arduino Uno，按 'b' 计数 + D13 LED 翻转
-  serial-echo/     Arduino Uno，串口回显 + D13 RX 指示灯
+  stm32-blink/        STM32F405 blink(推荐入门)
+  led-control/        Arduino Uno,双 LED + 按钮 + serial 控制
+  button-counter/     Arduino Uno,按 'b' 计数 + D13 LED 翻转
+  serial-echo/        Arduino Uno,串口回显 + D13 RX 指示灯
+  multi-led-chase/    Arduino Uno,6 颗 LED D2-D7 ping-pong 走马灯
+  seven-seg-counter/  Arduino Uno,数码管 0-9 滚动(8 段真驱动)
+  button-led-pair/    Arduino Uno,Serial 'b' 翻 D4 LED(故意非 D13)
+  pin-state-snapshot/ Arduino Uno,D2-D12 棋盘快照,供 status 全引脚查询
+  assert-blink-toggles/ moxin assert --pin --toggles 验证用
+  assert-serial-hello/  moxin assert --serial 验证用
 bridge/
-  stm32/           STM32 bridge 源码（已内嵌进 moxin binary）
+  stm32/           STM32 bridge 源码(已内嵌进 moxin binary)
   moxin-simavr-bridge.c   AVR bridge 源码
 src/               Rust 主程序
 ```
 
 ## 已知限制
 
-- 目前只有 D13 引脚有真实仿真状态，其他引脚的 LED 显示静态 OFF
 - Arduino Uno 需要额外安装 simavr
-- AI Inspector 当前为纯状态展示，外接 LLM 接口预留在 v3
+- AI Inspector 当前为纯状态展示,外接 LLM 接口预留在 v3
+- ADC / PWM / I2C / SPI 暂不仿真(留 v0.5.0 / Phase 2-full)
 
 ## License
 

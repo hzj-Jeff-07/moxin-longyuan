@@ -235,7 +235,7 @@ impl Shell {
                     let Ok(st) = sim.state.lock() else {
                         return Ok("(state unavailable)".to_string());
                     };
-                    Ok(render_runtime_frame(&self.project, &st))
+                    Ok(render_runtime_frame(&self.project, &st, self.board.spec()))
                 } else {
                     Ok(format!("{}\n(simulator not running — try `run`)", render_project(&self.project)))
                 }

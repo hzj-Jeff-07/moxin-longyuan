@@ -1,0 +1,46 @@
+[project]
+name = "seven-seg-counter"
+board = "arduino-uno"
+version = "0.2"
+
+[[component]]
+id = "seg1"
+type = "seven_segment"
+
+# 8 段映射:a→D2 b→D3 c→D4 d→D5 e→D6 f→D7 g→D8 dp→D9
+# 与 components/seven_segment.toml 的 seg_a..seg_g/seg_dp 主名对齐
+
+[[wire]]
+from = "board.D2"
+to = "seg1.seg_a"
+
+[[wire]]
+from = "board.D3"
+to = "seg1.seg_b"
+
+[[wire]]
+from = "board.D4"
+to = "seg1.seg_c"
+
+[[wire]]
+from = "board.D5"
+to = "seg1.seg_d"
+
+[[wire]]
+from = "board.D6"
+to = "seg1.seg_e"
+
+[[wire]]
+from = "board.D7"
+to = "seg1.seg_f"
+
+[[wire]]
+from = "board.D8"
+to = "seg1.seg_g"
+
+[[wire]]
+from = "board.D9"
+to = "seg1.seg_dp"
+
+[code]
+src = "src/main.ino"

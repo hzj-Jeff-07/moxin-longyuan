@@ -3,7 +3,7 @@ mod gd32vf103;
 mod spec;
 mod stm32f405;
 
-pub use spec::BoardSpec;
+pub use spec::{BoardSpec, PinSpec};
 
 use anyhow::{Result, bail};
 use std::path::{Path, PathBuf};

@@ -15,7 +15,10 @@ Emitted once at startup.
 
 ### pin
 {"event":"pin","t_us":<us>,"port":"<port>","bit":<n>,"value":0|1}
-- AVR: port="B", bit=5 → D13 (PB5)
+- AVR: 全 PORTB / PORTC / PORTD 引脚均 hook(Phase 2-mini Step 1 起):
+  - port="B" bit=0..5 → D8-D13 (PB0-PB5)
+  - port="C" bit=0..5 → A0-A5  (PC0-PC5)
+  - port="D" bit=0..7 → D0-D7  (PD0-PD7)
 - STM32: port="GPIO", bit=13 → PA13 (bridge-stm32 convention)
 
 ### serial

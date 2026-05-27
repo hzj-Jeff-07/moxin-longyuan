@@ -73,13 +73,32 @@ int main(int argc, char **argv) {
     avr->codeend = fwstart + fwsize - 1;
     free(buf);
 
-    /* 挂钩 PORTB 第 5 位 (即 Arduino D13 / 板载 LED 引脚) */
-    avr_irq_t *irq_b5 = avr_io_getirq(avr, AVR_IOCTL_IOPORT_GETIRQ('B'), 5);
-    if (!irq_b5) {
-        fprintf(stderr, "failed to get IRQ for PORTB bit 5\n");
-        return 1;
+    /* 挂钩 Arduino Uno 全部数字 + 模拟引脚的 GPIO IRQ
+     *   PORTB bit 0-5  → D8-D13
+     *   PORTC bit 0-5  → A0-A5
+     *   PORTD bit 0-7  → D0-D7
+     * 故意不暴露:
+     *   PORTB 6/7 = 晶振脚 XTAL1/XTAL2
+     *   PORTC 6   = RESET
+     *   PORTC 7   = ATmega328P 上不存在
+     */
+    static const struct { char port; uint8_t pins; } GPIO_PORTS[] = {
+        {'B', 6},  /* B0..B5 = D8..D13 */
+        {'C', 6},  /* C0..C5 = A0..A5 */
+        {'D', 8},  /* D0..D7 = D0..D7  */
+    };
+
+    for (size_t i = 0; i < sizeof(GPIO_PORTS) / sizeof(GPIO_PORTS[0]); i++) {
+        char port = GPIO_PORTS[i].port;
+        for (uint8_t bit = 0; bit < GPIO_PORTS[i].pins; bit++) {
+            avr_irq_t *irq = avr_io_getirq(avr, AVR_IOCTL_IOPORT_GETIRQ(port), bit);
+            if (!irq) {
+                fprintf(stderr, "failed to get IRQ for PORT%c bit %u\n", port, bit);
+                return 1;
+            }
+            avr_irq_register_notify(irq, pin_change_cb, (void *)(intptr_t)port);
+        }
     }
-    avr_irq_register_notify(irq_b5, pin_change_cb, (void *)(intptr_t)'B');
 
     {
         char buf[128];
