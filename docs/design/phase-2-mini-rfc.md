@@ -1,12 +1,12 @@
 # Phase 2-mini RFC — 拔掉 D13-only 红线
 
-> 状态:**草案 / 待实施**
-> 分支:`phase-2-mini`(origin 已同步)
+> 状态:**已完成 / 待 commit Step 7**
+> 分支:`phase-2-mini`(origin 已同步至 650afcf,Step 6+7 本地领先)
 > 备份:`v0.3.0-stable`(随时可回滚)
 > 起点 commit:`b44b7aa`(main)
 > 目标版本:**v0.4.0**
 > 预估编码量:5-7 天净 / 2 周实际(70/20/10 节奏)
-> 最后更新:2026-05-26
+> 最后更新:2026-05-27
 
 ---
 
@@ -291,14 +291,14 @@ phase-2-mini 完工前必须:
 - [x] `examples/button-led-pair/`(Serial 'b' 翻 D4,验 Step 3 非 D13)
 - [x] `examples/pin-state-snapshot/`(setup 翻 D2-D12 棋盘,验 Step 4 全引脚 status)
 - [x] 每个带 README + moxin.toml + main.ino
-- [ ] commit:`docs(examples): add 4 phase-2-mini examples`
+- [x] commit:`docs(examples): add 4 phase-2-mini examples`(3877b61 本地,未 push)
 
 ### Step 7 — 文档 + 收尾
-- [ ] 更新 `CLAUDE.md`:删"只有 D13 真实仿真"那行
-- [ ] 更新 `README.md`:examples 列表 + Phase 2-mini 说明
-- [ ] 更新 `bridge-protocol.md`:确认 pin 事件全 port 覆盖
-- [ ] `cargo test` + `cargo clippy -- -D warnings` 全过
-- [ ] 本 RFC 状态从"草案"改为"已完成"
+- [x] 更新 `CLAUDE.md`:删"只有 D13 真实仿真"那行
+- [x] 更新 `README.md`:examples 列表(+4 个)+ Phase 2-mini 说明 + 已知限制删 D13 那条
+- [x] 更新 `bridge-protocol.md`:pin 事件扩展为全 PORTB/C/D 覆盖
+- [x] `cargo test` + `cargo clippy -- -D warnings` 全过(119 / 0)
+- [x] 本 RFC 状态从"草案"改为"已完成"
 - [ ] commit:`chore: phase-2-mini wrap up`
 
 ### Step 8 — 合并 + Release v0.4.0(等你授权)
