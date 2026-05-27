@@ -1,0 +1,61 @@
+[project]
+name = "multi-led-chase"
+board = "arduino-uno"
+version = "0.2"
+
+[[component]]
+id = "led1"
+type = "led"
+color = "red"
+
+[[component]]
+id = "led2"
+type = "led"
+color = "yellow"
+
+[[component]]
+id = "led3"
+type = "led"
+color = "green"
+
+[[component]]
+id = "led4"
+type = "led"
+color = "blue"
+
+[[component]]
+id = "led5"
+type = "led"
+color = "white"
+
+[[component]]
+id = "led6"
+type = "led"
+color = "red"
+
+[[wire]]
+from = "board.D2"
+to = "led1.a"
+
+[[wire]]
+from = "board.D3"
+to = "led2.a"
+
+[[wire]]
+from = "board.D4"
+to = "led3.a"
+
+[[wire]]
+from = "board.D5"
+to = "led4.a"
+
+[[wire]]
+from = "board.D6"
+to = "led5.a"
+
+[[wire]]
+from = "board.D7"
+to = "led6.a"
+
+[code]
+src = "src/main.ino"

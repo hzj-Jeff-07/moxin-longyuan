@@ -1,0 +1,109 @@
+[project]
+name = "pin-state-snapshot"
+board = "arduino-uno"
+version = "0.2"
+
+# 11 颗 LED 接 D2..D12,setup 一次性写入固定 HIGH/LOW 棋盘模式,
+# loop 静默。用来给 `moxin status --pin Dx` 提供稳定快照供 AI 查询。
+
+[[component]]
+id = "led_d2"
+type = "led"
+color = "red"
+
+[[component]]
+id = "led_d3"
+type = "led"
+color = "red"
+
+[[component]]
+id = "led_d4"
+type = "led"
+color = "red"
+
+[[component]]
+id = "led_d5"
+type = "led"
+color = "red"
+
+[[component]]
+id = "led_d6"
+type = "led"
+color = "red"
+
+[[component]]
+id = "led_d7"
+type = "led"
+color = "red"
+
+[[component]]
+id = "led_d8"
+type = "led"
+color = "red"
+
+[[component]]
+id = "led_d9"
+type = "led"
+color = "red"
+
+[[component]]
+id = "led_d10"
+type = "led"
+color = "red"
+
+[[component]]
+id = "led_d11"
+type = "led"
+color = "red"
+
+[[component]]
+id = "led_d12"
+type = "led"
+color = "red"
+
+[[wire]]
+from = "board.D2"
+to = "led_d2.a"
+
+[[wire]]
+from = "board.D3"
+to = "led_d3.a"
+
+[[wire]]
+from = "board.D4"
+to = "led_d4.a"
+
+[[wire]]
+from = "board.D5"
+to = "led_d5.a"
+
+[[wire]]
+from = "board.D6"
+to = "led_d6.a"
+
+[[wire]]
+from = "board.D7"
+to = "led_d7.a"
+
+[[wire]]
+from = "board.D8"
+to = "led_d8.a"
+
+[[wire]]
+from = "board.D9"
+to = "led_d9.a"
+
+[[wire]]
+from = "board.D10"
+to = "led_d10.a"
+
+[[wire]]
+from = "board.D11"
+to = "led_d11.a"
+
+[[wire]]
+from = "board.D12"
+to = "led_d12.a"
+
+[code]
+src = "src/main.ino"

@@ -1,0 +1,24 @@
+[project]
+name = "button-led-pair"
+board = "arduino-uno"
+version = "0.2"
+
+[[component]]
+id = "btn1"
+type = "button"
+
+[[component]]
+id = "led1"
+type = "led"
+color = "green"
+
+[[wire]]
+from = "board.D2"
+to = "btn1.a"
+
+[[wire]]
+from = "board.D4"
+to = "led1.a"
+
+[code]
+src = "src/main.ino"

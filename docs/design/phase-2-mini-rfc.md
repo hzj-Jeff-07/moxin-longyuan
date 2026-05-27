@@ -286,11 +286,11 @@ phase-2-mini 完工前必须:
 - [x] commit:`feat(seven-seg): real segment-driven display`(f2eb736)
 
 ### Step 6 — 4 个新 examples
-- [ ] `examples/multi-led-chase/`
-- [ ] `examples/seven-seg-counter/`
-- [ ] `examples/button-led-pair/`
-- [ ] `examples/pin-state-snapshot/`
-- [ ] 每个带 README + moxin.toml + main.ino
+- [x] `examples/multi-led-chase/`(走马灯 D2-D7,验 Step 1+3)
+- [x] `examples/seven-seg-counter/`(数码管 0-9 滚动,验 Step 5)
+- [x] `examples/button-led-pair/`(Serial 'b' 翻 D4,验 Step 3 非 D13)
+- [x] `examples/pin-state-snapshot/`(setup 翻 D2-D12 棋盘,验 Step 4 全引脚 status)
+- [x] 每个带 README + moxin.toml + main.ino
 - [ ] commit:`docs(examples): add 4 phase-2-mini examples`
 
 ### Step 7 — 文档 + 收尾

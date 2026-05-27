@@ -34,12 +34,13 @@ cargo test && cargo clippy --all-targets -- -D warnings
 
 > ⚠️ 每次推进一个 Step,**手动更新这一节** + RFC 勾选框。
 
-- **当前位置**:Step 5 编码完成(数码管 7 段真驱动 commit f2eb736 已 push origin/phase-2-mini),Step 6(4 个新 examples)未开始
-- **最后一个 commit**(本分支):f2eb736 `feat(seven-seg): real segment-driven display`(已 push)
-- **最后一次 `cargo test`**:119 passed / 0 failed(2026-05-26 phase-2-mini 分支,新增 9 个 seven_seg 单测)
+- **当前位置**:Step 6 编码完成(4 个新 examples 全建好,待 commit),Step 7(文档收尾 + 删 CLAUDE.md "只有 D13 真实仿真")未开始
+- **最后一个 commit**(本分支):650afcf `docs(phase-2-mini): mark Step 5 commit f2eb736 in progress trail`(已 push)
+- **未提交工作树**:`examples/{seven-seg-counter,multi-led-chase,button-led-pair,pin-state-snapshot}/`(3 文件/目录:README + moxin.toml + src/main.ino)
+- **最后一次 `cargo test`**:119 passed / 0 failed(2026-05-26 Step 6 后再验,examples 不进编译,基线维持)
 - **最后一次 `cargo clippy --all-targets -- -D warnings`**:0 警告
-- **CI 状态**:phase-2-mini 本地领先 origin,未 push;合并时再触发 release pipeline 完整验证
-- **未解决问题**:Windows 本地无法编译 bridge(无 make/gcc),所有 bridge 真编译验证由 Linux CI 兜底
+- **CI 状态**:origin/phase-2-mini = 650afcf,本地有 4 个 untracked examples 待 commit;合并时再触发 release pipeline 完整验证
+- **未解决问题**:Windows 本地无法编译 bridge(无 make/gcc),所有 bridge 真编译验证由 Linux CI 兜底;examples 真机跑通要等 Linux/macOS + simavr
 - **批处理结论**:Step 3 接入渲染后未触发性能问题(TUI 16ms 采样自然降频),YAGNI 决策维持
 
 ---
@@ -107,6 +108,7 @@ git reset --hard v0.3.0-stable
 
 > 每次有实质推进,在这里加一行。
 
+- **2026-05-26** — Step 6 编码完成:`examples/` 加 4 个新案例验 Phase 2-mini 各 Step。`seven-seg-counter`:1 个 `seven_segment` 组件 + 8 条 D2-D9 wire,firmware 循环 0-9 共阴段位表,验 Step 5 真驱动 + dp 跳过非数字。`multi-led-chase`:6 颗 LED 接 D2-D7,ping-pong 走马灯,验 Step 1(全 PORTD GPIO hook)+ Step 3(渲染读真状态)。`button-led-pair`:btn1 在 D2,led1(green)故意挑非 D13 的 D4,Serial 'b' 模拟按键翻 LED,验 Step 3 非 D13 LED 不再静态 OFF。`pin-state-snapshot`:11 LED 接 D2-D12,setup() 一次性写棋盘(偶 HIGH/奇 LOW),loop() 每 5s 心跳,验 Step 4 `moxin status --pin Dx` 全引脚可查不退化 UNKNOWN。每个含 README(接线/Serial 命令/运行/预期/AI 接口验证/依赖)+ moxin.toml(schema 0.2)+ src/main.ino。119 测试维持(examples 不入编译),clippy 0 警告。
 - **2026-05-26** — Step 5 编码完成:`render.rs` 加 `segments_to_glyph([bool;8]) -> &str`(共阴段位 → "0"-"9"/" "/"-")、`seven_seg_segments(comp_id, project, state, spec) -> [bool;8]`(扫 wires 取 8 段电平,主名 `seg_a`..`seg_g`/`seg_dp` + 别名 `a`..`g`/`dp`/`dot` 均识别)、`seven_seg_display` 拼小数点(`3.` 但不允许 `-.`);plain `render_runtime_frame` + styled `wire_row_line` 两条路径的 seven_segment 分支同步替换硬编码 `[8]`。`wire_row_line` 签名加 `project: &Project` 参数,两个 caller 跟进。新增 9 单测:0-9 全表 / 全灭 / 非法段 / dp 忽略 / dp+digit / dp+dash / 主名+别名 wire 解析 / 未接线 fallback / 集成回归。119 测试过、clippy 0 警告。
 - **2026-05-26** — Step 4 编码完成:`cmd_status.rs` 抽 `resolve_pin_status` 纯函数,D13 走 `spec.d13_bridge_port/bit`(stm32 兼容)、D0-D12/A0-A5 走 Step 2 映射、GND→LOW、5V→HIGH(电源轨常量)、STM32 BoardPort 等未来扩展 fall through UNKNOWN(不退化);`PinSpec` 从 `boards::spec` 提升为 `pub use`。新增 10 单测覆盖 D13/D7/D2/A0/A3/GND/5V/unknown pin/no state file。110 测试过、clippy 0 警告。
 - **2026-05-26** — Step 3 编码完成:`render.rs` 加 `pin_level(pin, state, spec) -> LedLevel` helper,plain `render_runtime_frame` + styled `wire_row_line` 全部接入(LED + buzzer);拔掉 `is_d13` 硬编码;`render_runtime_frame` 签名加 `spec: &BoardSpec` 参数,`shell.rs:238` caller 同步;新增 D7 ON / D2 OFF / D5 buzzer ON 三条单测;sim.rs PinStates 链清除 `#[allow(dead_code)]`。100 测试过、clippy 0 警告。
