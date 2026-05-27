@@ -1,11 +1,11 @@
 # Phase 2-mini RFC — 拔掉 D13-only 红线
 
-> 状态:**已完成 / 待 commit Step 7**
-> 分支:`phase-2-mini`(origin 已同步至 650afcf,Step 6+7 本地领先)
+> 状态:**已完成 / v0.4.0 已发布**
+> 分支:`phase-2-mini`(已合并到 main,保留备查)
 > 备份:`v0.3.0-stable`(随时可回滚)
 > 起点 commit:`b44b7aa`(main)
-> 目标版本:**v0.4.0**
-> 预估编码量:5-7 天净 / 2 周实际(70/20/10 节奏)
+> 目标版本:**v0.4.0** ✅
+> 实际编码量:~1 天(2026-05-26 → 05-27)
 > 最后更新:2026-05-27
 
 ---
@@ -301,10 +301,11 @@ phase-2-mini 完工前必须:
 - [x] 本 RFC 状态从"草案"改为"已完成"
 - [ ] commit:`chore: phase-2-mini wrap up`
 
-### Step 8 — 合并 + Release v0.4.0(等你授权)
-- [ ] PR `phase-2-mini` → `main`(走 gh pr create)
-- [ ] 合并后等你授权打 tag `v0.4.0`
-- [ ] Release pipeline 跑完 → 4 平台 binary 发布
+### Step 8 — 合并 + Release v0.4.0(已完成)
+- [x] PR `phase-2-mini` → `main`(PR #1,merge commit 18d0433)
+- [x] Cargo.toml + Cargo.lock 0.3.0 → 0.4.0(25f5208)
+- [x] tag `v0.4.0` on 25f5208 + push
+- [x] Release pipeline run 26488272582 全绿(4m22s,4 平台二进制发布)
 
 ---
 
