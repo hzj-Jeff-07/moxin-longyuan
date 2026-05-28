@@ -5,6 +5,7 @@ mod cmd_doctor;
 mod cmd_install;
 mod cmd_new;
 mod cmd_status;
+mod components;
 mod inspector;
 mod project;
 mod render;
