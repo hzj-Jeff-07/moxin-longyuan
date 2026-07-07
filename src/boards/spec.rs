@@ -20,6 +20,9 @@ pub struct BoardSpec {
     /// 支持硬件 PWM(analogWrite)的数字引脚号。LED 只对这些引脚显示占空比,
     /// 避免把慢速 blink 方波误读成调光(Uno: D3/D5/D6/D9/D10/D11)。
     pub pwm_pins: &'static [u8],
+    /// (板上 A 引脚号, MCU ADC 通道) 映射。Uno: A0..A5 = ADC0..ADC5。
+    /// 空 = 该板不支持 ADC 注入。
+    pub adc_channels: &'static [(u8, u8)],
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -75,6 +78,14 @@ impl BoardSpec {
         let port = self.d13_bridge_port;
         let bit = self.d13_bridge_bit;
         Box::new(move |p: &str, b: u32| p == port && b == bit)
+    }
+
+    /// 板上 A 引脚号 → MCU ADC 通道。
+    pub fn adc_channel_for(&self, a_pin: u8) -> Option<u8> {
+        self.adc_channels
+            .iter()
+            .find(|(a, _)| *a == a_pin)
+            .map(|(_, ch)| *ch)
     }
 
     /// Board info string derived from spec fields.

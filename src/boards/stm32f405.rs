@@ -73,8 +73,9 @@ pub static STM32F405_SPEC: BoardSpec = BoardSpec {
     gpio_count: 51,
     d13_bridge_port: "GPIO",
     d13_bridge_bit: 13,
-    // STM32 的 PWM 追踪留 Phase 3(qemu bridge 尚未细分 timer 引脚)
+    // STM32 的 PWM 追踪 / ADC 注入留 Phase 3(qemu bridge 尚不支持)
     pwm_pins: &[],
+    adc_channels: &[],
 };
 
 pub const BLINK_C_TEMPLATE: &str = r#"// 由 moxin new --board=stm32 自动生成

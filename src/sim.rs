@@ -98,6 +98,12 @@ pub struct RunState {
     pub pin_states: HashMap<String, u8>,
     /// 每引脚最新 PWM 采样,key 与 `pin_states` 同格式(`"B:1"`)。读取走 `get_pwm`(带过期判定)。
     pub pwm: HashMap<String, PwmSample>,
+    /// 每 ADC 通道最新注入值(0..=1023),来自 bridge 的 `adc` 事件回显。
+    pub adc_values: HashMap<u8, u16>,
+    /// bridge `hello` 事件宣告的能力(如 "adc" / "serial");老 bridge 不发 hello → 空。
+    pub bridge_capabilities: Vec<String>,
+    /// bridge 协议版本,来自 `hello`;老 bridge → None。
+    pub bridge_protocol: Option<String>,
     /// 每引脚边沿追踪器,只在 `apply_event` 内喂数据。
     pub pwm_trackers: HashMap<String, PwmTracker>,
     /// 自上次写 `.moxin-state.json` 后状态是否变过。
@@ -124,6 +130,9 @@ impl Default for RunState {
             button_pressed: false,
             pin_states: HashMap::new(),
             pwm: HashMap::new(),
+            adc_values: HashMap::new(),
+            bridge_capabilities: Vec::new(),
+            bridge_protocol: None,
             pwm_trackers: HashMap::new(),
             dirty: true,
         }
@@ -210,12 +219,16 @@ impl RunState {
 #[derive(Debug, Deserialize)]
 #[serde(tag = "event")]
 enum BridgeEvent {
+    #[serde(rename = "hello")]
+    Hello { protocol: String, capabilities: Vec<String> },
     #[serde(rename = "ready")]
     Ready { mcu: String, freq: u32 },
     #[serde(rename = "pin")]
     Pin { t_us: u64, port: String, bit: u8, value: u8 },
     #[serde(rename = "serial")]
     Serial { t_us: u64, line: String },
+    #[serde(rename = "adc")]
+    Adc { t_us: u64, channel: u8, value: u16 },
     #[serde(rename = "exit")]
     Exit { state: i32 },
     #[serde(rename = "button")]
@@ -245,6 +258,27 @@ impl RunningSim {
 
     pub fn is_alive(&mut self) -> bool {
         matches!(self.child.try_wait(), Ok(None))
+    }
+
+    /// 通过 bridge stdin 命令通道注入 ADC 值(0..=1023,超界截断)。
+    /// bridge 处理后会回显 `adc` 事件,`RunState::adc_values` 由事件流更新。
+    pub fn set_adc(&mut self, channel: u8, value: u16) -> Result<()> {
+        if let Ok(s) = self.state.lock() {
+            // 只对宣告了 adc 能力的 bridge 发命令;老 bridge 不发 hello → 拒绝并说明
+            if !s.bridge_capabilities.iter().any(|c| c == "adc") {
+                bail!(
+                    "bridge does not support adc injection (capabilities: {:?}) — rebuild bridge/ (make -C bridge)",
+                    s.bridge_capabilities
+                );
+            }
+        }
+        let Some(stdin) = self.stdin.as_mut() else {
+            bail!("bridge stdin not available — cannot inject adc value");
+        };
+        writeln!(stdin, "adc {} {}", channel, value.min(1023))
+            .and_then(|_| stdin.flush())
+            .map_err(|e| anyhow!("write adc command to bridge: {}", e))?;
+        Ok(())
     }
 }
 
@@ -325,6 +359,10 @@ fn apply_event(
     let Ok(mut s) = state.lock() else { return };
     s.dirty = true;
     match ev {
+        BridgeEvent::Hello { protocol, capabilities } => {
+            s.bridge_protocol = Some(protocol);
+            s.bridge_capabilities = capabilities;
+        }
         BridgeEvent::Ready { mcu, freq } => {
             s.ready = true;
             s.mcu = mcu;
@@ -349,6 +387,10 @@ fn apply_event(
                 s.serial_lines.pop_front();
             }
             s.serial_lines.push_back((t_us, line));
+        }
+        BridgeEvent::Adc { t_us, channel, value } => {
+            s.last_event_t_us = t_us;
+            s.adc_values.insert(channel, value.min(1023));
         }
         BridgeEvent::Exit { state: exit_state } => {
             s.bridge_exited = true;
@@ -676,6 +718,59 @@ mod tests {
             state.lock().unwrap().get_pwm('B', 1).is_none(),
             "超过 3 个周期无新边沿的样本应过期"
         );
+    }
+
+    #[test]
+    fn apply_event_hello_records_protocol_and_capabilities() {
+        let state = Arc::new(Mutex::new(RunState::default()));
+        let ev: BridgeEvent = serde_json::from_str(
+            r#"{"event":"hello","protocol":"1","capabilities":["adc","serial"]}"#,
+        )
+        .expect("hello event should deserialize from real bridge JSON");
+        apply_event(&state, ev, &|_, _| false);
+        let s = state.lock().unwrap();
+        assert_eq!(s.bridge_protocol.as_deref(), Some("1"));
+        assert_eq!(s.bridge_capabilities, vec!["adc", "serial"]);
+    }
+
+    #[test]
+    fn apply_event_adc_updates_channel_value() {
+        let state = Arc::new(Mutex::new(RunState::default()));
+        let ev: BridgeEvent = serde_json::from_str(
+            r#"{"event":"adc","t_us":777,"channel":0,"value":512}"#,
+        )
+        .expect("adc event should deserialize from real bridge JSON");
+        apply_event(&state, ev, &|_, _| false);
+        let s = state.lock().unwrap();
+        assert_eq!(s.adc_values.get(&0), Some(&512));
+        assert_eq!(s.last_event_t_us, 777);
+        assert!(!s.adc_values.contains_key(&1));
+    }
+
+    #[test]
+    fn apply_event_adc_clamps_to_10bit() {
+        let state = Arc::new(Mutex::new(RunState::default()));
+        let ev: BridgeEvent = serde_json::from_str(
+            r#"{"event":"adc","t_us":1,"channel":3,"value":40000}"#,
+        )
+        .unwrap();
+        apply_event(&state, ev, &|_, _| false);
+        assert_eq!(state.lock().unwrap().adc_values.get(&3), Some(&1023));
+    }
+
+    #[test]
+    fn old_bridge_without_hello_has_no_capabilities() {
+        // 老 bridge 只发 ready:capabilities 保持空 → set_adc 会拒绝
+        let state = Arc::new(Mutex::new(RunState::default()));
+        let ev: BridgeEvent = serde_json::from_str(
+            r#"{"event":"ready","mcu":"atmega328p","freq":16000000}"#,
+        )
+        .unwrap();
+        apply_event(&state, ev, &|_, _| false);
+        let s = state.lock().unwrap();
+        assert!(s.ready);
+        assert!(s.bridge_protocol.is_none());
+        assert!(s.bridge_capabilities.is_empty());
     }
 
     #[test]

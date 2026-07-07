@@ -1,13 +1,34 @@
 # MoXin Bridge Protocol
 
-## Current State (v2a/v2b)
-No version field. Protocol is fixed per bridge binary.
+## Current State (v0.5.0 / Phase 2-full Step 2)
+Protocol version is announced via the `hello` event (AVR bridge, protocol "1").
+Bridges that predate `hello` (STM32, old AVR builds) have no version field —
+the Rust side treats them as capability-less and refuses `adc` injection.
 Unknown event types are silently ignored by the Rust side.
 
 ## Transport
-Bridge process communicates via stdout JSON Lines. Each line is one event.
+- **stdout**: JSON Lines, one event per line.
+- **stdin** (AVR bridge, protocol ≥1): line-based command channel, polled
+  non-blocking between `avr_run` chunks (single-threaded — simavr is not
+  thread-safe). Unrecognized lines are ignored.
+
+## stdin Commands (AVR bridge)
+
+### adc
+```
+adc <channel> <value>
+```
+- channel: 0..7 (Uno exposes ADC0..ADC5 = A0..A5)
+- value: 0..1023 (10-bit raw; clamped). Bridge converts to mV against
+  AVCC=5000mV and raises the simavr ADC IRQ, then echoes an `adc` event.
 
 ## Events
+
+### hello (protocol ≥1, AVR bridge)
+{"event":"hello","protocol":"1","capabilities":["adc","serial"]}
+Emitted once, before `ready`. Rust side stores capabilities;
+`RunningSim::set_adc` refuses when "adc" is absent (old bridge → clear error
+instead of a silently dropped command).
 
 ### ready
 {"event":"ready","mcu":"<id>","freq":<hz>}
@@ -23,7 +44,16 @@ Emitted once at startup.
 
 ### serial
 {"event":"serial","t_us":<us>,"line":"<escaped>"}
-Non-PIN UART output lines.
+- STM32: non-PIN UART output lines (since v0.2).
+- AVR: UART0 output, line-buffered, hooked via UART_IRQ_OUTPUT (since
+  protocol 1). simavr's default UART→stdout dump is disabled so raw text
+  cannot pollute the JSON Lines stream. Before protocol 1 the AVR bridge
+  never emitted serial events — Uno serial output was silently lost.
+
+### adc (protocol ≥1, AVR bridge)
+{"event":"adc","t_us":<us>,"channel":<0..7>,"value":<0..1023>}
+Echo of a processed stdin `adc` command. Rust side updates
+`RunState.adc_values[channel]`.
 
 ### button
 {"event":"button","t_us":<us>,"pressed":true|false}
@@ -37,5 +67,13 @@ Rust side updates RunState.button_pressed on receipt.
 - STM32 bridge uses "GPIO" as port placeholder; real port names (PA/PB/PC) are not yet used.
 - STM32 firmware must emit "PIN<n>=<0|1>\n" on USART2 for GPIO events to be detected.
 - AVR: simavr instruments GPIO directly, no firmware convention needed.
-- Serial RX injection: tui.rs writes single bytes to bridge stdin; simavr bridge does not
-  currently consume stdin (no UART RX loop). STM32 bridge passes stdin to /dev/null.
+- Serial RX injection is still NOT implemented: tui.rs writes single bytes to
+  bridge stdin; on the AVR bridge those bytes land in the command-line buffer
+  and are discarded as unrecognized (same net effect as the old empty-read
+  behavior). STM32 bridge passes qemu stdin to /dev/null.
+- PWM has no bridge event: duty/freq are derived Rust-side from `pin` edge
+  timing (see phase-2-full RFC Step 3).
+
+## 三处同步规则
+加新事件类型 = 同步改 `sim.rs::BridgeEvent` enum + bridge C 源码 + 本文档,
+三处一起改否则丢事件。

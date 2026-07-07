@@ -381,15 +381,16 @@ pub struct BoardSpec {
 - [ ] commit:`refactor(components): introduce ComponentDef registry`
 - [ ] 单 commit 范围控制(尽量),便于翻车 revert
 
-### Step 2 — ADC 真仿真
-- [ ] bridge:加 stdin 命令循环 + simavr ADC IRQ inject + hello 事件
-- [ ] `BridgeEvent::Hello / Adc` + `RunState::adc_values / bridge_capabilities` + `apply_event` 分支
-- [ ] `BoardSpec::adc_channels` + Arduino UNO 配置
-- [ ] `RunningSim::set_adc(channel, value)`
-- [ ] `potentiometer` 渲染改查 `adc_values`
-- [ ] TUI 加 component focus + 方向键调旋钮
-- [ ] 5 个新单测 + 1 个 example
-- [ ] commit:`feat(adc): real ADC injection via simavr IRQ`
+### Step 2 — ADC 真仿真(✅ 2026-07-07)
+- [x] bridge:stdin 命令通道(非阻塞轮询,非 pthread,见决策记录)+ simavr ADC IRQ inject + hello 事件
+- [x] bridge 附带:UART0 → serial 事件(修复 Uno 串口输出从未进过事件流的老 bug)
+- [x] `BridgeEvent::Hello / Adc` + `RunState::adc_values / bridge_capabilities` + `apply_event` 分支
+- [x] `BoardSpec::adc_channels` + Arduino UNO 配置(A0..A5 = ADC0..ADC5)
+- [x] `RunningSim::set_adc(channel, value)`(bridge 无 adc 能力时明确报错)
+- [x] `potentiometer` 渲染改查 `adc_values`(进度条 + % + 原始值,无值回退静态阻值)
+- [x] TUI 加 Tab 聚焦电位器 + ←/→/Home/End 调旋钮;另加 shell REPL `adc <A0..A5|ch> <value>`
+- [x] 11 个新单测 + 1 个 example(`adc-potentiometer`)— cargo test 146 过
+- [x] commit:`feat(adc): real ADC injection via simavr IRQ`
 
 ### Step 3 — PWM 真仿真(✅ 2026-07-07,先于 Step 2 完成 — 纯 Rust 侧,不动 bridge)
 - [x] `PwmTracker` 实现 + 单测(波形识别)
@@ -399,11 +400,11 @@ pub struct BoardSpec {
 - [x] 6+ 个新单测 + 1 个 example(`pwm-fade`)— cargo test 135 过
 - [x] commit:`feat(pwm): edge-based PWM duty/freq tracking`
 
-### Step 4 — examples
-- [ ] `examples/adc-potentiometer/`(依赖 Step 2)
+### Step 4 — examples(✅ 2026-07-07)
+- [x] `examples/adc-potentiometer/`
 - [x] `examples/pwm-fade/`
-- [x] 各带 README + moxin.toml + main.ino(pwm-fade 部分)
-- [ ] commit:`docs(examples): add 2 phase-2-full examples`
+- [x] 各带 README + moxin.toml + main.ino
+- [x] (examples 随 Step 2/3 各自的 feat commit 提交,未单开 docs commit)
 
 ### Step 5 — 文档 + 收尾
 - [ ] CLAUDE.md / README.md / bridge-protocol.md 全更
@@ -458,5 +459,10 @@ pub struct BoardSpec {
 | 2026-07-07 | Step 3 先于 Step 2 落地 | PWM 方案纯 Rust 侧、零 bridge 改动,可立即做;ADC 需改 bridge/*.c,按 CLAUDE.md 约定等用户再确认一次 |
 | 2026-07-07 | PWM 采样加 `t_us` + `get_pwm` 过期判定(3 周期无边沿即过期) | 呼吸灯扫到 0/255 时波形停止,旧样本不能一直挂着;渲染回退 ON/OFF |
 | 2026-07-07 | LED 调光显示限 `pwm_pins` + ≥20Hz | 防止 D13 慢速 blink(1Hz 方波也"稳定")被误显示成占空比;buzzer 不限引脚(tone() 任意脚) |
+| 2026-07-07 | bridge stdin 用主循环非阻塞轮询,不用 RFC 草图的 pthread | simavr 不是线程安全的,跨线程 `avr_raise_irq` 与 `avr_run` 竞态;轮询在 2000 条指令的 chunk 间隙做,延迟可忽略 |
+| 2026-07-07 | hello capabilities = ["adc","serial"] 而非草图的 ["adc","pwm"] | capabilities 描述 bridge 自身能力;PWM 是 Rust 侧推导,bridge 并不提供 |
+| 2026-07-07 | 顺手修 AVR 串口:UART0 IRQ → serial 事件 + 关 simavr stdout dump | 排查发现 Uno 的 Serial.println 从未进过事件流(raw 文本被 Rust 侧当非 JSON 丢弃),serial-echo / assert-serial-hello 两个例子在 Uno 上一直是坏的;正好在同一文件同一授权范围内 |
+| 2026-07-07 | `set_adc` 对无 adc 能力的 bridge 直接报错 | 命令写给老 bridge 只会被静默忽略,用户看不出为什么没反应;报错并提示重编 bridge |
+| 2026-07-07 | 加 shell REPL `adc` 命令(RFC 原文只有 TUI 旋钮) | AI Agent / CI 走 REPL 或 JSON 模式,不开 TUI;没有命令入口 ADC 通道对主要用户(AI)不可达 |
 
 后续决策追加在此表底部。

@@ -1,0 +1,16 @@
+[project]
+name = "adc-potentiometer"
+board = "arduino-uno"
+version = "0.2"
+
+[[component]]
+id = "pot1"
+type = "potentiometer"
+max_ohms = 10000
+
+[[wire]]
+from = "board.A0"
+to = "pot1.wiper"
+
+[code]
+src = "src/main.ino"

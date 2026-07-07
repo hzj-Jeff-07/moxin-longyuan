@@ -43,6 +43,7 @@ pub static ARDUINO_UNO_SPEC: BoardSpec = BoardSpec {
     d13_bridge_port: "B",
     d13_bridge_bit: 5,
     pwm_pins: &[3, 5, 6, 9, 10, 11],
+    adc_channels: &[(0, 0), (1, 1), (2, 2), (3, 3), (4, 4), (5, 5)],
 };
 
 pub const BLINK_INO_TEMPLATE: &str = r#"// 由 moxin new 自动生成

@@ -11,7 +11,8 @@
 - **Phase 2-full(目标 v0.5.0)**:🚧 进行中,权威计划见 `docs/design/phase-2-full-rfc.md`
   - Step 1 ComponentDef 注册式重构 ✅(已合并 main)
   - Step 3 PWM 追踪 ✅(纯 Rust 侧 PwmTracker,含 pwm-fade example,2026-07-07)
-  - Step 2 ADC 真仿真 ❌(需改 bridge/*.c,动手前先向用户确认)/ Step 4 adc-potentiometer example / Step 5 文档收尾 ❌
+  - Step 2 ADC 真仿真 ✅(bridge stdin 命令通道 + IRQ 注入,经用户确认,2026-07-07;顺带修复 AVR serial 事件缺失)
+  - Step 4 examples ✅(adc-potentiometer + pwm-fade)/ Step 5 文档收尾 + release v0.5.0 ❌ 待做
 - `docs/planning/`(7day 计划)已与实际历史脱节,仅作参考,进度以 git log + RFC 勾选为准
 
 ✅ 当前范围:
@@ -86,7 +87,7 @@ src/
     gd32vf103.rs    占位:build/spawn_sim 必须 bail "not yet implemented"
 bridge/             C 源码,Claude 不主动改
 components/         元件 schema TOML(与 src/components/ 对齐)
-examples/           ≤12 个(当前 11;v0.5.0 还差 adc-potentiometer),新增需含 README + moxin.toml
+examples/           ≤12 个(当前 12,已到上限;Phase 3 加例子前先调此规则),新增需含 README + moxin.toml
 docs/design/        设计文档(bridge-protocol、cli-vision、phase-2-full-rfc 是权威)
 ```
 
@@ -222,18 +223,22 @@ fn run_blink_e2e() {
 
 ### Phase 2-full / v0.5.0(进行中,细则见 RFC 六节)
 
-- [ ] ADC 真仿真:bridge stdin 命令通道 + simavr IRQ 注入 + `BridgeEvent::Hello/Adc`
+- [x] ADC 真仿真:bridge stdin 命令通道 + simavr IRQ 注入 + `BridgeEvent::Hello/Adc`(2026-07-07)
 - [x] PWM 追踪:`PwmTracker` 边沿推导 duty/freq,buzzer/led 渲染升级(2026-07-07)
-- [ ] examples + 2:`adc-potentiometer` ❌、`pwm-fade` ✅
-- [ ] `cargo test` ≥130(当前 135 ✅)/ clippy 0 警告 ✅ / bridge-protocol.md 同步(ADC 时改)
+- [x] examples + 2:`adc-potentiometer` ✅、`pwm-fade` ✅
+- [x] `cargo test` ≥130(当前 146)/ clippy 0 警告 / bridge-protocol.md 同步(protocol "1" + hello/adc/serial)
+- [ ] Step 5 收尾:README 更新 + 版本号 0.4.0 → 0.5.0 + tag(tag/push 需用户授权)
+- [ ] ⚠️ bridge 改动只过了桩头文件语法校验,真机 simavr 编译 + e2e 待 CI verify 关卡 / 本地有 simavr 的机器验证
 
 ---
 
 ## 当前已知坑(改之前先看)
 
 - `gd32vf103.rs::build / spawn_sim` 留 `bail "not yet implemented"` — 不要随意补全,RISC-V bridge 未写
-- ADC 未实现:`potentiometer` 渲染的是静态 `max_ohms`,不是真实模拟量;A0-A5 目前按数字 GPIO 电平读
+- ADC 注入仅 Uno(bridge protocol "1");STM32 `adc_channels` 为空,注入会被 `set_adc` 拒绝
+- ADC 值来自注入(`adc` 命令 / TUI 旋钮),不是电路仿真;没注入过时 potentiometer 回退静态 `max_ohms` 显示
 - PWM 是 Rust 侧边沿推导(非 bridge 真 hook):duty 到 0/255 时无边沿,采样过期回退 ON/OFF,属预期;STM32 `pwm_pins` 为空,PWM 显示仅 Uno 生效
+- 老 bridge 二进制(protocol 前)不发 hello/serial/adc:`set_adc` 会报错提示重编 bridge;Uno serial 需要新 bridge 才有
 - Windows 上 simavr 无现成包(WSL / MSYS2 自编译),`moxin doctor` 提示已如实说明;考虑在 release 附预编译 bridge
 - `.moxin-state.json` 只在 `run --output json` 模式落盘;TUI/REPL 模式下 `moxin status` 读到的是上一次 json run 的快照
 

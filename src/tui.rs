@@ -26,6 +26,8 @@ use ratatui::widgets::{Block, Borders, Paragraph};
 use std::io;
 use std::time::{Duration, Instant};
 
+use crate::board::PinRef;
+use crate::boards::BoardSpec;
 use crate::sim::RunState;
 use crate::inspector::{Inspector, InspectorLine, InspectorStatus, StubInspector};
 use crate::project::Project;
@@ -295,12 +297,73 @@ fn render_inspector(snap: &FrameSnapshot) -> Vec<Line<'static>> {
     lines
 }
 
+/// 电位器 `comp_id` 接的 A 引脚 → MCU ADC 通道(扫 project.wires)。
+fn pot_adc_channel(project: &Project, spec: &BoardSpec, comp_id: &str) -> Option<u8> {
+    for w in &project.wires {
+        let from = PinRef::parse(&w.from).ok();
+        let to = PinRef::parse(&w.to).ok();
+        let (pin, id) = match (from, to) {
+            (Some(PinRef::Component { id, .. }), Some(p)) => (p, id),
+            (Some(p), Some(PinRef::Component { id, .. })) => (p, id),
+            _ => continue,
+        };
+        if id == comp_id {
+            if let PinRef::BoardAnalog(n) = pin {
+                return spec.adc_channel_for(n);
+            }
+        }
+    }
+    None
+}
+
+/// Tab 循环聚焦的候选:项目里所有电位器的 id(按 add 顺序)。
+fn knob_candidates(project: &Project) -> Vec<String> {
+    project
+        .components
+        .iter()
+        .filter(|c| c.kind == "potentiometer")
+        .map(|c| c.id.clone())
+        .collect()
+}
+
+/// 聚焦电位器时的方向键动作 → 注入新 ADC 值,返回 toast 文案。
+fn adjust_knob(
+    shell: &mut crate::shell::Shell,
+    comp_id: &str,
+    key: KeyCode,
+) -> Result<String> {
+    let spec = shell.board.spec();
+    let Some(ch) = pot_adc_channel(&shell.project, spec, comp_id) else {
+        anyhow::bail!("{} 没接到 A 引脚 — 先 wire A0 -> {}.wiper", comp_id, comp_id);
+    };
+    let Some(sim) = shell.running.as_mut() else {
+        anyhow::bail!("simulator not running — try `run`");
+    };
+    let current = sim
+        .state
+        .lock()
+        .ok()
+        .and_then(|s| s.adc_values.get(&ch).copied())
+        .unwrap_or(512);
+    let next: u16 = match key {
+        KeyCode::Left => current.saturating_sub(32),
+        KeyCode::Right => (current + 32).min(1023),
+        KeyCode::Home => 0,
+        KeyCode::End => 1023,
+        _ => current,
+    };
+    sim.set_adc(ch, next)?;
+    Ok(format!("{} → ch{} = {}", comp_id, ch, next))
+}
+
 pub fn run(shell: &mut crate::shell::Shell) -> Result<()> {
     let _guard = TerminalGuard::new();
     let backend = CrosstermBackend::new(io::stdout());
     let mut terminal = Terminal::new(backend).context("create ratatui terminal")?;
     let mut input = InputState::new();
     let mut last_message: Option<(String, Instant, Severity)> = None;
+    // Tab 聚焦的电位器 id(None = 无聚焦,方向键不拦截)
+    let mut knob_focus: Option<String> = None;
 
     loop {
         if let Some((_, ts, _)) = last_message.as_ref() {
@@ -423,6 +486,46 @@ pub fn run(shell: &mut crate::shell::Shell) -> Result<()> {
             if let Event::Key(key) = event::read().context("event read")? {
                 match key.code {
                     KeyCode::Esc => break,
+                    KeyCode::Tab => {
+                        // Tab 在电位器之间循环聚焦:None → p1 → p2 → ... → None
+                        let pots = knob_candidates(&shell.project);
+                        if pots.is_empty() {
+                            last_message = Some((
+                                "no potentiometer in project".to_string(),
+                                Instant::now(),
+                                Severity::Error,
+                            ));
+                        } else {
+                            let next = match knob_focus.as_deref() {
+                                None => Some(pots[0].clone()),
+                                Some(cur) => pots
+                                    .iter()
+                                    .position(|p| p == cur)
+                                    .and_then(|i| pots.get(i + 1))
+                                    .cloned(),
+                            };
+                            let msg = match &next {
+                                Some(id) => format!("knob: {} (←/→ adjust, Home/End min/max, Tab next)", id),
+                                None => "knob focus off".to_string(),
+                            };
+                            knob_focus = next;
+                            last_message = Some((msg, Instant::now(), Severity::Success));
+                        }
+                    }
+                    KeyCode::Left | KeyCode::Right | KeyCode::Home | KeyCode::End
+                        if knob_focus.is_some() =>
+                    {
+                        let id = knob_focus.clone().unwrap_or_default();
+                        match adjust_knob(shell, &id, key.code) {
+                            Ok(msg) => {
+                                last_message = Some((msg, Instant::now(), Severity::Success));
+                            }
+                            Err(e) => {
+                                last_message =
+                                    Some((format!("{}", e), Instant::now(), Severity::Error));
+                            }
+                        }
+                    }
                     KeyCode::Enter => {
                         if let Some(cmd) = input.submit() {
                             match shell.dispatch(&cmd) {
