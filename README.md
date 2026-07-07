@@ -6,9 +6,9 @@
 
 ## 当前状态
 
-v0.4.0,两块板子可以跑通:
+v0.5.0(Phase 2-full),两块板子可以跑通:
 
-- **Arduino Uno**(通过 simavr):全 PORTB/C/D GPIO、UART、按钮输入、数码管 8 段真驱动
+- **Arduino Uno**(通过 simavr):全 PORTB/C/D GPIO、UART 串口事件、按钮输入、数码管 8 段真驱动、**ADC 注入**(电位器旋钮)、**PWM 占空比/频率追踪**(呼吸灯、蜂鸣器音调)
 - **STM32F405**(通过 QEMU netduinoplus2):GPIO、UART
 
 四面板 TUI 界面：
@@ -78,9 +78,12 @@ moxin> help     # 查看所有命令
 | `build` | 编译当前项目固件 |
 | `add led <颜色> --id <id>` | 添加 LED 组件 |
 | `add button --id <id>` | 添加按钮组件 |
+| `adc <A0..A5\|ch> <0..1023>` | 注入 ADC 值（转电位器旋钮） |
 | `wire <引脚> -> <组件.端子>` | 连线 |
 | `show` | 查看当前接线状态 |
 | `board info` | 查看板子规格 |
+
+TUI 里还可以 `Tab` 聚焦电位器，`←/→` 转旋钮，`Home/End` 到 0/1023。
 
 示例：
 ```
@@ -118,6 +121,8 @@ examples/
   seven-seg-counter/  Arduino Uno,数码管 0-9 滚动(8 段真驱动)
   button-led-pair/    Arduino Uno,Serial 'b' 翻 D4 LED(故意非 D13)
   pin-state-snapshot/ Arduino Uno,D2-D12 棋盘快照,供 status 全引脚查询
+  adc-potentiometer/  Arduino Uno,A0 电位器真 ADC 采样(TUI 旋钮 / adc 命令)
+  pwm-fade/           Arduino Uno,D9 呼吸灯,PWM 占空比追踪
   assert-blink-toggles/ moxin assert --pin --toggles 验证用
   assert-serial-hello/  moxin assert --serial 验证用
 bridge/
@@ -128,9 +133,11 @@ src/               Rust 主程序
 
 ## 已知限制
 
-- Arduino Uno 需要额外安装 simavr
+- Arduino Uno 需要额外安装 simavr;ADC 注入和 serial 事件需要用本仓库源码重编 bridge(`make -C bridge`,老 bridge 二进制会被明确报错提示)
 - AI Inspector 当前为纯状态展示,外接 LLM 接口预留在 v3
-- ADC / PWM / I2C / SPI 暂不仿真(留 v0.5.0 / Phase 2-full)
+- ADC 值来自注入(旋钮/命令),不是电路级仿真;PWM 是 Rust 侧边沿推导,duty 到 0/255 时回退 ON/OFF 显示
+- ADC / PWM 仅 Arduino Uno;STM32 留 Phase 3
+- I2C / SPI / OLED / LCD1602 / 13 件外设扩展留 v0.6.0(Phase 3)
 
 ## License
 

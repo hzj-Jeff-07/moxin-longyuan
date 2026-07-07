@@ -1,12 +1,12 @@
 # Phase 2-full RFC — 拔掉元件硬编码红线 + ADC/PWM 真仿真
 
-> 状态:**草案 / 待用户批准启动**
-> 分支:`phase-2-full`(待开)
-> 备份:`v0.4.0-stable`(待建)
+> 状态:**已完成(代码部分,2026-07-07)— 待 tag v0.5.0(需用户授权)+ bridge 真机验证**
+> 分支:Step 1 经 `phase-2-full` 合并;Step 2/3/4/5 在 `claude/project-completion-review-9s1vwk`
 > 起点 commit:`58aeb5d`(main)
 > 目标版本:**v0.5.0**
-> 预估工作量:2-3 周(2026-05-28 → 06-15 弹性)
-> 最后更新:2026-05-27
+> 实际工作量:Step 1 一周(5-28 合并)+ Step 2-5 一天(07-07,AI 执行)
+> 最后更新:2026-07-07
+> ⚠️ 遗留:bridge C 改动只过了桩头文件语法校验,真机 simavr 编译 + e2e 待 CI verify / 本地验证
 
 ---
 

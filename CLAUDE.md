@@ -12,7 +12,8 @@
   - Step 1 ComponentDef 注册式重构 ✅(已合并 main)
   - Step 3 PWM 追踪 ✅(纯 Rust 侧 PwmTracker,含 pwm-fade example,2026-07-07)
   - Step 2 ADC 真仿真 ✅(bridge stdin 命令通道 + IRQ 注入,经用户确认,2026-07-07;顺带修复 AVR serial 事件缺失)
-  - Step 4 examples ✅(adc-potentiometer + pwm-fade)/ Step 5 文档收尾 + release v0.5.0 ❌ 待做
+  - Step 4 examples ✅(adc-potentiometer + pwm-fade)/ Step 5 文档收尾 ✅(README + 版本号 0.5.0,2026-07-07)
+  - 剩:PR 合并 main + tag `v0.5.0` + push tag(**均需用户授权**)+ bridge 真机验证(CI verify 关卡)
 - `docs/planning/`(7day 计划)已与实际历史脱节,仅作参考,进度以 git log + RFC 勾选为准
 
 ✅ 当前范围:
@@ -227,7 +228,7 @@ fn run_blink_e2e() {
 - [x] PWM 追踪:`PwmTracker` 边沿推导 duty/freq,buzzer/led 渲染升级(2026-07-07)
 - [x] examples + 2:`adc-potentiometer` ✅、`pwm-fade` ✅
 - [x] `cargo test` ≥130(当前 146)/ clippy 0 警告 / bridge-protocol.md 同步(protocol "1" + hello/adc/serial)
-- [ ] Step 5 收尾:README 更新 + 版本号 0.4.0 → 0.5.0 + tag(tag/push 需用户授权)
+- [x] Step 5 收尾:README 更新 + 版本号 0.4.0 → 0.5.0(2026-07-07);tag `v0.5.0` 待用户授权
 - [ ] ⚠️ bridge 改动只过了桩头文件语法校验,真机 simavr 编译 + e2e 待 CI verify 关卡 / 本地有 simavr 的机器验证
 
 ---
