@@ -81,6 +81,14 @@ jobs:
           kill $RUN_PID 2>/dev/null || true
           exit $ASSERT_EXIT
 
+      # v0.5.0 起:验证 AVR bridge 的 UART → serial 事件(bridge protocol "1")
+      # assert 自己拉起仿真,不需要后台 run
+      - name: Real-sim verify (assert-serial-hello, UART serial events)
+        working-directory: examples/assert-serial-hello
+        run: |
+          ../../target/release/moxin build
+          ../../target/release/moxin assert --serial-contains "hello" --within 5s
+
   # 三平台构建二进制
   build:
     name: Build ${{ matrix.target }}
