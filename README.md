@@ -45,7 +45,7 @@ moxin doctor
 
 | 板子 | 依赖 | macOS | Linux (Debian/Ubuntu) | Windows |
 |------|------|-------|------------------------|---------|
-| Arduino Uno | simavr | `brew install simavr` | `apt install simavr` | `scoop install simavr`（或自行编译） |
+| Arduino Uno | simavr | `brew install simavr` | `apt install simavr` | WSL 内 `apt install simavr`，或经 MSYS2 自行编译 |
 | Arduino Uno | arduino-cli | `brew install arduino-cli` | 见 [arduino-cli 官方安装](https://arduino.github.io/arduino-cli/latest/installation/) | 同左 |
 | STM32F405 | qemu-system-arm | `brew install qemu` | `apt install qemu-system-arm` | `scoop install qemu` |
 | STM32F405 | arm-none-eabi-gcc | `brew install --cask gcc-arm-embedded` | `apt install gcc-arm-none-eabi` | `scoop install gcc-arm-none-eabi` |

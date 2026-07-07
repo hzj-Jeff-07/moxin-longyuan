@@ -136,8 +136,11 @@ fn main() -> Result<ExitCode> {
                 // stdout 严格只走 JSON Lines（在 reader 线程里透传），状态提示写 stderr。
                 eprintln!("✓ simulator started ({}) — streaming JSON to stdout, Ctrl-C to stop", project.project.board);
                 loop {
-                    if let Ok(s) = sim.state.lock() {
-                        s.write_state_file(&state_file);
+                    if let Ok(mut s) = sim.state.lock() {
+                        if s.dirty {
+                            s.write_state_file(&state_file);
+                            s.dirty = false;
+                        }
                         if s.bridge_exited { break; }
                     }
                     if !sim.is_alive() { break; }

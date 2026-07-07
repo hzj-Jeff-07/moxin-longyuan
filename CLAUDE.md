@@ -4,24 +4,28 @@
 
 ---
 
-## Phase 1 范围(锁定)
+## 阶段状态(2026-07 更新)
 
-✅ 做:
-- Arduino Uno (simavr) + STM32F405 (qemu netduinoplus2) — 已可跑
-- 元件:LED / Button(已实现);新元件先与 `bridge/` 对齐再加
-- 新增 `moxin run --output json`,透传 bridge 事件流到 stdout
-- 新增 `moxin status --pin <name>`,快照查询
-- 新增 examples:`button-counter`、`serial-echo`(达到 ≥4 个)
-- Windows / Linux 跑通(当前 brew-only)
+- **Phase 1**:✅ 完成(双板跑通 / `run --output json` / `status --pin` / doctor 三平台 / examples ≥4)
+- **Phase 2-mini(v0.4.0)**:✅ 完成(全 PORTB/C/D GPIO 追踪、七段真段驱动、`moxin assert`)
+- **Phase 2-full(目标 v0.5.0)**:🚧 进行中,权威计划见 `docs/design/phase-2-full-rfc.md`
+  - Step 1 ComponentDef 注册式重构 ✅(已合并 main)
+  - Step 2 ADC 真仿真 / Step 3 PWM 追踪 / Step 4 两个新 examples / Step 5 文档收尾 ❌ 未动
+- `docs/planning/`(7day 计划)已与实际历史脱节,仅作参考,进度以 git log + RFC 勾选为准
+
+✅ 当前范围:
+- Arduino Uno (simavr) + STM32F405 (qemu netduinoplus2) 双板
+- 元件 9 种(led / button / resistor / buzzer / potentiometer / seven_segment / breadboard / dupont 等),经 `src/components/` 注册式接入
+- 新增元件 = `src/components/<name>.rs` 实现 `ComponentDef` + `Registry::builtin()` 注册一行,**不改 render/shell/inspector 主路径**
 
 ❌ 不做(明确禁区):
 - 不写 AVR / ARM / RISC-V CPU 内核
 - 不加 ESP32 / RP2040 / Arduino Nano(没现成 bridge)
-- 不加 I2C / SPI / OLED / LCD1602 / DHT11(需 bridge + 建模配合)
+- 不加 I2C / SPI / OLED / LCD1602 / DHT11(留 Phase 3 / v0.6.0)
 - 不做 GUI / Tauri / Web 前端
 - 不实现 MCP server(留 v3)
-- 不改 `bridge/*.c`,除非用户明确同意
-- 不改 `SCHEMA_VERSION`(当前 `"0.2"`)
+- 不改 `bridge/*.c`,除非用户明确同意(phase-2-full RFC 已默认同意 ADC/stdin 通道改动,动手前仍再确认一次)
+- 不改 `SCHEMA_VERSION`(当前 `"0.2"`;Phase 3 撑不住再升 0.3,见 RFC 决策记录)
 - 不改 `LICENSE`(BUSL-1.1)
 
 ---
@@ -65,9 +69,14 @@ src/
   main.rs           clap 入口,只做命令分发
   shell.rs          REPL + dispatch
   project.rs        moxin.toml(SCHEMA_VERSION=0.2)
-  sim.rs            bridge 子进程 + JSON 事件流
-  tui.rs render.rs  ratatui 渲染
+  sim.rs            bridge 子进程 + JSON 事件流 + RunState
+  tui.rs render.rs  ratatui 渲染(渲染分支走 components registry,不再 match kind)
   inspector.rs      AI Inspector 面板
+  board.rs          板层公共逻辑
+  cmd_*.rs          doctor / install / new / status / assert 子命令
+  components/
+    mod.rs          ComponentDef trait + Registry::builtin()
+    <name>.rs       每个元件一个文件(led / button / resistor / ...)
   boards/
     mod.rs          BoardImpl trait + board_from_str
     spec.rs         BoardSpec / PinSpec
@@ -75,11 +84,13 @@ src/
     stm32f405.rs    qemu bridge 调用
     gd32vf103.rs    占位:build/spawn_sim 必须 bail "not yet implemented"
 bridge/             C 源码,Claude 不主动改
-examples/           ≤10 个,新增需含 README + moxin.toml
-docs/design/        设计文档(bridge-protocol 与 cli-vision 是权威)
+components/         元件 schema TOML(与 src/components/ 对齐)
+examples/           ≤12 个(当前 10;v0.5.0 加 adc-potentiometer + pwm-fade),新增需含 README + moxin.toml
+docs/design/        设计文档(bridge-protocol、cli-vision、phase-2-full-rfc 是权威)
 ```
 
 新增板子:`boards/<name>.rs` + `mod.rs` 注册 + spec 单测,不要往 `mod.rs` 堆代码。
+新增元件:`src/components/<name>.rs` 实现 `ComponentDef` + `Registry::builtin()` 注册 + 单测,不要回退到 match 硬编码。
 
 ---
 
@@ -149,12 +160,14 @@ pub fn load(path: &Path) -> Result<Self> {
 
 ```rust
 #[cfg(target_os = "windows")]
-fn install_hint() -> &'static str { "scoop install simavr  # 或下载 release" }
+fn install_hint() -> &'static str { "no native Windows package — use WSL (apt install simavr) or build via MSYS2" }
 #[cfg(target_os = "macos")]
 fn install_hint() -> &'static str { "brew install simavr" }
 #[cfg(target_os = "linux")]
 fn install_hint() -> &'static str { "apt install simavr" }
 ```
+
+注意:scoop 主 bucket 没有 simavr 包,Windows 提示不要写 `scoop install simavr`(2026-07 已修正,勿回退)。
 
 bridge 二进制查找:先 `$MOXIN_BRIDGE` env,再 exe 同目录 `moxin-simavr-bridge[.exe]`。
 
@@ -163,17 +176,19 @@ bridge 二进制查找:先 `$MOXIN_BRIDGE` env,再 exe 同目录 `moxin-simavr-b
 ## 测试约定
 
 - 单测与代码同文件 `mod tests`(已是惯例)
-- 涉及外部进程的测试加探针,缺依赖直接 `return`:
+- 涉及外部进程的测试加探针,缺依赖直接 `return`(`which` crate 不在依赖列表里,用 `Command` 探针):
 
 ```rust
 #[test]
 fn run_blink_e2e() {
-    if which::which("simavr").is_err() { return; }
+    if std::process::Command::new("simavr").arg("--help").output().is_err() { return; }
     // 真跑 examples/blink,不要 mock BridgeEvent
 }
 ```
 
 - `cargo test` 在无 simavr/qemu 的环境必须全过
+- 测试里不要 `std::env::set_var` / `remove_var`(并行测试线程下与 `getenv` 竞态);
+  需要注入 env 的函数拆 `*_impl(env_override: Option<String>)`,参考 `sim.rs::find_bridge_avr_impl`
 
 ---
 
@@ -187,28 +202,37 @@ fn run_blink_e2e() {
 - 不改 `LICENSE` 或 `Cargo.toml::license-file`
 - 不写 `unsafe` 块不带 `// SAFETY:` 注释
 - 不 `cargo update` 跨大版本(0.30→0.31 OK,0.30→1.0 先问)
-- 不假设 simavr/qemu 已装,先 `which::which()` 探针
+- 不假设 simavr/qemu 已装,先 `Command` 探针(见测试约定)
 - 不动 `SCHEMA_VERSION` 不写迁移提示
 
 ---
 
-## DOD(Phase 1 完工标准)
+## DOD
 
-- [ ] `cargo test` 全过(无外部依赖部分)
-- [ ] `cargo clippy -- -D warnings` 无 warning
-- [ ] `moxin doctor` 在 Windows/macOS/Linux 三平台输出可执行提示
-- [ ] `moxin run --output json` 在 stdout 至少输出 ready / pin / serial 三类事件
-- [ ] `moxin status --pin D13` 返回 `HIGH` / `LOW` / `UNKNOWN`
-- [ ] examples ≥4 个(blink-uno、blink-stm32、button-counter、serial-echo),每个 README 30 秒可跑通
-- [ ] 三平台 `cargo build --release` 出 binary
+### Phase 1(✅ 全部达成,2026-05 验收)
+
+- [x] `cargo test` 全过(无外部依赖部分)
+- [x] `cargo clippy -- -D warnings` 无 warning
+- [x] `moxin doctor` 在 Windows/macOS/Linux 三平台输出可执行提示
+- [x] `moxin run --output json` 在 stdout 至少输出 ready / pin / serial 三类事件
+- [x] `moxin status --pin D13` 返回 `HIGH` / `LOW` / `UNKNOWN`
+- [x] examples ≥4 个,每个 README 30 秒可跑通
+- [x] 三平台 `cargo build --release` 出 binary(release workflow 4 平台产物 + Linux simavr 真机断言关卡)
+
+### Phase 2-full / v0.5.0(进行中,细则见 RFC 六节)
+
+- [ ] ADC 真仿真:bridge stdin 命令通道 + simavr IRQ 注入 + `BridgeEvent::Hello/Adc`
+- [ ] PWM 追踪:`PwmTracker` 边沿推导 duty/freq,buzzer/led 渲染升级
+- [ ] examples + 2:`adc-potentiometer`、`pwm-fade`
+- [ ] `cargo test` ≥130 / clippy 0 警告 / bridge-protocol.md 同步
 
 ---
 
 ## 当前已知坑(改之前先看)
 
 - `gd32vf103.rs::build / spawn_sim` 留 `bail "not yet implemented"` — 不要随意补全,RISC-V bridge 未写
-- `sim.rs::bridge_log_path` / `arduino_uno.rs::dirs_home` 用 `HOME` env,Windows 上为空 → 需加 `USERPROFILE` fallback
-- `find_bridge_avr` 同目录查找未加 `.exe` 后缀,Windows 找不到
-- `cmd_install` 当前 macOS-only,其它平台占位
+- ADC/PWM 未实现:`potentiometer` 渲染的是静态 `max_ohms`,不是真实模拟量;A0-A5 目前按数字 GPIO 电平读
+- Windows 上 simavr 无现成包(WSL / MSYS2 自编译),`moxin doctor` 提示已如实说明;考虑在 release 附预编译 bridge
+- `.moxin-state.json` 只在 `run --output json` 模式落盘;TUI/REPL 模式下 `moxin status` 读到的是上一次 json run 的快照
 
-每月复审本文件,删过时条目。
+每月复审本文件,删过时条目。(上次复审:2026-07,删除了 4 条已修复的跨平台坑)

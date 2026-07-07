@@ -32,6 +32,10 @@ pub struct RunState {
     pub bridge_exit_reason: Option<String>,
     pub button_pressed: bool,
     pub pin_states: HashMap<String, u8>,
+    /// 自上次写 `.moxin-state.json` 后状态是否变过。
+    /// 初值 true 保证启动后立即落一次初始快照;写盘方(main.rs run --output json)
+    /// 写完负责清零,避免 50ms 轮询在状态不变时反复写盘。
+    pub dirty: bool,
 }
 
 impl Default for RunState {
@@ -51,6 +55,7 @@ impl Default for RunState {
             bridge_exit_reason: None,
             button_pressed: false,
             pin_states: HashMap::new(),
+            dirty: true,
         }
     }
 }
@@ -214,6 +219,7 @@ fn reader_loop(
     }
     if let Ok(mut s) = state.lock() {
         s.bridge_exited = true;
+        s.dirty = true;
         if s.bridge_exit_reason.is_none() {
             s.bridge_exit_reason = Some("stdout closed".to_string());
         }
@@ -233,6 +239,7 @@ fn apply_event(
     is_d13: &dyn Fn(&str, u32) -> bool,
 ) {
     let Ok(mut s) = state.lock() else { return };
+    s.dirty = true;
     match ev {
         BridgeEvent::Ready { mcu, freq } => {
             s.ready = true;
@@ -292,7 +299,13 @@ pub(crate) fn bridge_log_path() -> PathBuf {
 }
 
 pub fn find_bridge_avr() -> Result<PathBuf> {
-    if let Ok(p) = std::env::var("MOXIN_BRIDGE") {
+    find_bridge_avr_impl(std::env::var("MOXIN_BRIDGE").ok())
+}
+
+/// `env_override` = `$MOXIN_BRIDGE` 的值。单独拆出来是为了让单测注入,
+/// 避免 `std::env::set_var` 在并行测试线程里与 `getenv` 竞态。
+fn find_bridge_avr_impl(env_override: Option<String>) -> Result<PathBuf> {
+    if let Some(p) = env_override {
         return Ok(PathBuf::from(p));
     }
     if let Ok(exe) = std::env::current_exe() {
@@ -308,7 +321,12 @@ pub fn find_bridge_avr() -> Result<PathBuf> {
 const BRIDGE_STM32_SRC: &str = include_str!("../bridge/stm32/bridge-stm32.c");
 
 pub fn find_bridge_stm32() -> Result<PathBuf> {
-    if let Ok(p) = std::env::var("MOXIN_BRIDGE_STM32") {
+    find_bridge_stm32_impl(std::env::var("MOXIN_BRIDGE_STM32").ok())
+}
+
+/// `env_override` = `$MOXIN_BRIDGE_STM32` 的值,拆分理由同 `find_bridge_avr_impl`。
+fn find_bridge_stm32_impl(env_override: Option<String>) -> Result<PathBuf> {
+    if let Some(p) = env_override {
         return Ok(PathBuf::from(p));
     }
     let cache_dir = dirs_cache_dir()?;
@@ -358,18 +376,14 @@ mod tests {
 
     #[test]
     fn find_bridge_avr_uses_env_var() {
-        std::env::set_var("MOXIN_BRIDGE", "/tmp/fake-bridge");
-        let p = find_bridge_avr().unwrap();
+        let p = find_bridge_avr_impl(Some("/tmp/fake-bridge".to_string())).unwrap();
         assert_eq!(p, PathBuf::from("/tmp/fake-bridge"));
-        std::env::remove_var("MOXIN_BRIDGE");
     }
 
     #[test]
     fn find_bridge_stm32_uses_env_var() {
-        std::env::set_var("MOXIN_BRIDGE_STM32", "/tmp/fake-stm32-bridge");
-        let p = find_bridge_stm32().unwrap();
+        let p = find_bridge_stm32_impl(Some("/tmp/fake-stm32-bridge".to_string())).unwrap();
         assert_eq!(p, PathBuf::from("/tmp/fake-stm32-bridge"));
-        std::env::remove_var("MOXIN_BRIDGE_STM32");
     }
 
     #[test]
@@ -476,6 +490,22 @@ mod tests {
         let s = state.lock().unwrap();
         assert_eq!(s.get_arduino_analog(3), Some(true));
         assert_eq!(s.get_arduino_analog(0), None);
+    }
+
+    #[test]
+    fn dirty_flag_starts_set_and_reset_after_event() {
+        // 初值 true:启动后第一轮轮询要落初始快照
+        let state = Arc::new(Mutex::new(RunState::default()));
+        assert!(state.lock().unwrap().dirty);
+
+        // 写盘方清零后,新事件必须重新置脏
+        state.lock().unwrap().dirty = false;
+        let ev: BridgeEvent = serde_json::from_str(
+            r#"{"event":"pin","t_us":100,"port":"B","bit":5,"value":1}"#,
+        )
+        .unwrap();
+        apply_event(&state, ev, &|_, _| false);
+        assert!(state.lock().unwrap().dirty);
     }
 
     #[test]
