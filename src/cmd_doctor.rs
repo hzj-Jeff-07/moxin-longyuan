@@ -51,7 +51,7 @@ fn hint_simavr() -> &'static str { "brew install simavr" }
 #[cfg(target_os = "linux")]
 fn hint_simavr() -> &'static str { "apt install simavr" }
 #[cfg(target_os = "windows")]
-fn hint_simavr() -> &'static str { "scoop install simavr  # or download release from https://github.com/buserror/simavr" }
+fn hint_simavr() -> &'static str { "no native Windows package — use WSL (apt install simavr) or build via MSYS2: https://github.com/buserror/simavr" }
 
 pub fn cmd_doctor() -> anyhow::Result<()> {
     let mut all_ok = true;

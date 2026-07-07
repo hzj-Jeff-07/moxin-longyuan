@@ -65,6 +65,8 @@ pub static GD32VF103_SPEC: BoardSpec = BoardSpec {
     gpio_count: 37,
     d13_bridge_port: "GPIO",
     d13_bridge_bit: 8,
+    pwm_pins: &[],
+    adc_channels: &[],
 };
 
 pub struct Gd32vf103;

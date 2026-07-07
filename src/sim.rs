@@ -14,6 +14,70 @@ pub enum LedLevel {
     On,
 }
 
+/// 连续多少个周期彼此偏差 ≤5% 才认定为稳定 PWM 波形。
+pub const PWM_STABLE_PERIODS: u32 = 3;
+
+/// 一次 PWM 推导结果。由 `PwmTracker` 从 `pin` 边沿事件算出,
+/// bridge 侧不参与(phase-2-full RFC Step 3 选定的纯 Rust 方案)。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PwmSample {
+    /// 占空比 0..=255,对齐 Arduino `analogWrite` 值域(128 = 50%)
+    pub duty: u8,
+    pub freq_hz: u32,
+    /// 连续 `PWM_STABLE_PERIODS` 个周期频率稳定才为 true;随机翻转保持 false
+    pub stable: bool,
+    /// 本样本对应上升沿的仿真时间,配合 `RunState::get_pwm` 做过期判定
+    pub t_us: u64,
+}
+
+/// 基于 pin 边沿时间差推导 duty / freq。
+/// 一个完整周期 = 上升沿 → 下降沿 → 下一个上升沿;每个上升沿收口一次采样。
+#[derive(Debug, Default)]
+pub struct PwmTracker {
+    last_rise: Option<u64>,
+    last_fall: Option<u64>,
+    last_period_us: Option<u64>,
+    last_level: Option<u8>,
+    stable_periods: u32,
+}
+
+impl PwmTracker {
+    /// 喂入一条 pin 事件。返回 `Some` 表示刚收口一个完整周期。
+    pub fn observe(&mut self, value: u8, t_us: u64) -> Option<PwmSample> {
+        let level = u8::from(value != 0);
+        if self.last_level == Some(level) {
+            return None; // 电平重复,不是边沿
+        }
+        self.last_level = Some(level);
+        if level == 0 {
+            self.last_fall = Some(t_us);
+            return None;
+        }
+        let prev_rise = self.last_rise.replace(t_us)?;
+        let period = t_us.saturating_sub(prev_rise);
+        if period == 0 {
+            return None;
+        }
+        if let Some(prev_period) = self.last_period_us {
+            // |period - prev| ≤ 5% × prev(整数运算:diff × 20 ≤ prev)
+            if period.abs_diff(prev_period) * 20 <= prev_period {
+                self.stable_periods += 1;
+            } else {
+                self.stable_periods = 0;
+            }
+        }
+        self.last_period_us = Some(period);
+        let fall = self.last_fall.filter(|f| (prev_rise..t_us).contains(f))?;
+        let high_us = fall - prev_rise;
+        Some(PwmSample {
+            duty: ((high_us * 255 + period / 2) / period) as u8,
+            freq_hz: ((1_000_000 + period / 2) / period) as u32,
+            stable: self.stable_periods + 1 >= PWM_STABLE_PERIODS,
+            t_us,
+        })
+    }
+}
+
 pub const SERIAL_BUFFER_CAP: usize = 64;
 
 #[derive(Debug)]
@@ -32,6 +96,20 @@ pub struct RunState {
     pub bridge_exit_reason: Option<String>,
     pub button_pressed: bool,
     pub pin_states: HashMap<String, u8>,
+    /// 每引脚最新 PWM 采样,key 与 `pin_states` 同格式(`"B:1"`)。读取走 `get_pwm`(带过期判定)。
+    pub pwm: HashMap<String, PwmSample>,
+    /// 每 ADC 通道最新注入值(0..=1023),来自 bridge 的 `adc` 事件回显。
+    pub adc_values: HashMap<u8, u16>,
+    /// bridge `hello` 事件宣告的能力(如 "adc" / "serial");老 bridge 不发 hello → 空。
+    pub bridge_capabilities: Vec<String>,
+    /// bridge 协议版本,来自 `hello`;老 bridge → None。
+    pub bridge_protocol: Option<String>,
+    /// 每引脚边沿追踪器,只在 `apply_event` 内喂数据。
+    pub pwm_trackers: HashMap<String, PwmTracker>,
+    /// 自上次写 `.moxin-state.json` 后状态是否变过。
+    /// 初值 true 保证启动后立即落一次初始快照;写盘方(main.rs run --output json)
+    /// 写完负责清零,避免 50ms 轮询在状态不变时反复写盘。
+    pub dirty: bool,
 }
 
 impl Default for RunState {
@@ -51,6 +129,12 @@ impl Default for RunState {
             bridge_exit_reason: None,
             button_pressed: false,
             pin_states: HashMap::new(),
+            pwm: HashMap::new(),
+            adc_values: HashMap::new(),
+            bridge_capabilities: Vec::new(),
+            bridge_protocol: None,
+            pwm_trackers: HashMap::new(),
+            dirty: true,
         }
     }
 }
@@ -105,6 +189,20 @@ impl RunState {
         }
     }
 
+    /// 查 (port, bit) 引脚的 PWM 采样。样本对应的波形停止后不能一直挂着旧值:
+    /// 距最新事件超过 3 个周期没有新边沿 → 视为过期,返回 `None`(渲染回退 ON/OFF)。
+    pub fn get_pwm(&self, port: char, bit: u8) -> Option<PwmSample> {
+        let sample = self.pwm.get(&format!("{}:{}", port, bit))?;
+        if sample.freq_hz == 0 {
+            return None;
+        }
+        let period_us = 1_000_000 / sample.freq_hz as u64;
+        if self.last_event_t_us.saturating_sub(sample.t_us) > period_us * 3 {
+            return None;
+        }
+        Some(*sample)
+    }
+
     /// 查 D 引脚(D0-D13)电平。
     pub fn get_arduino_digital(&self, d_pin: u8) -> Option<bool> {
         let (port, bit) = Self::arduino_digital_to_port_bit(d_pin)?;
@@ -121,12 +219,16 @@ impl RunState {
 #[derive(Debug, Deserialize)]
 #[serde(tag = "event")]
 enum BridgeEvent {
+    #[serde(rename = "hello")]
+    Hello { protocol: String, capabilities: Vec<String> },
     #[serde(rename = "ready")]
     Ready { mcu: String, freq: u32 },
     #[serde(rename = "pin")]
     Pin { t_us: u64, port: String, bit: u8, value: u8 },
     #[serde(rename = "serial")]
     Serial { t_us: u64, line: String },
+    #[serde(rename = "adc")]
+    Adc { t_us: u64, channel: u8, value: u16 },
     #[serde(rename = "exit")]
     Exit { state: i32 },
     #[serde(rename = "button")]
@@ -156,6 +258,27 @@ impl RunningSim {
 
     pub fn is_alive(&mut self) -> bool {
         matches!(self.child.try_wait(), Ok(None))
+    }
+
+    /// 通过 bridge stdin 命令通道注入 ADC 值(0..=1023,超界截断)。
+    /// bridge 处理后会回显 `adc` 事件,`RunState::adc_values` 由事件流更新。
+    pub fn set_adc(&mut self, channel: u8, value: u16) -> Result<()> {
+        if let Ok(s) = self.state.lock() {
+            // 只对宣告了 adc 能力的 bridge 发命令;老 bridge 不发 hello → 拒绝并说明
+            if !s.bridge_capabilities.iter().any(|c| c == "adc") {
+                bail!(
+                    "bridge does not support adc injection (capabilities: {:?}) — rebuild bridge/ (make -C bridge)",
+                    s.bridge_capabilities
+                );
+            }
+        }
+        let Some(stdin) = self.stdin.as_mut() else {
+            bail!("bridge stdin not available — cannot inject adc value");
+        };
+        writeln!(stdin, "adc {} {}", channel, value.min(1023))
+            .and_then(|_| stdin.flush())
+            .map_err(|e| anyhow!("write adc command to bridge: {}", e))?;
+        Ok(())
     }
 }
 
@@ -214,6 +337,7 @@ fn reader_loop(
     }
     if let Ok(mut s) = state.lock() {
         s.bridge_exited = true;
+        s.dirty = true;
         if s.bridge_exit_reason.is_none() {
             s.bridge_exit_reason = Some("stdout closed".to_string());
         }
@@ -233,7 +357,12 @@ fn apply_event(
     is_d13: &dyn Fn(&str, u32) -> bool,
 ) {
     let Ok(mut s) = state.lock() else { return };
+    s.dirty = true;
     match ev {
+        BridgeEvent::Hello { protocol, capabilities } => {
+            s.bridge_protocol = Some(protocol);
+            s.bridge_capabilities = capabilities;
+        }
         BridgeEvent::Ready { mcu, freq } => {
             s.ready = true;
             s.mcu = mcu;
@@ -243,7 +372,11 @@ fn apply_event(
             s.last_event_t_us = t_us;
             s.prev_pin_event_t_us = s.last_pin_event_t_us;
             s.last_pin_event_t_us = t_us;
-            s.pin_states.insert(format!("{}:{}", port, bit), value);
+            let key = format!("{}:{}", port, bit);
+            if let Some(sample) = s.pwm_trackers.entry(key.clone()).or_default().observe(value, t_us) {
+                s.pwm.insert(key.clone(), sample);
+            }
+            s.pin_states.insert(key, value);
             if is_d13(&port, bit as u32) {
                 s.d13 = if value != 0 { LedLevel::On } else { LedLevel::Off };
             }
@@ -254,6 +387,10 @@ fn apply_event(
                 s.serial_lines.pop_front();
             }
             s.serial_lines.push_back((t_us, line));
+        }
+        BridgeEvent::Adc { t_us, channel, value } => {
+            s.last_event_t_us = t_us;
+            s.adc_values.insert(channel, value.min(1023));
         }
         BridgeEvent::Exit { state: exit_state } => {
             s.bridge_exited = true;
@@ -292,7 +429,13 @@ pub(crate) fn bridge_log_path() -> PathBuf {
 }
 
 pub fn find_bridge_avr() -> Result<PathBuf> {
-    if let Ok(p) = std::env::var("MOXIN_BRIDGE") {
+    find_bridge_avr_impl(std::env::var("MOXIN_BRIDGE").ok())
+}
+
+/// `env_override` = `$MOXIN_BRIDGE` 的值。单独拆出来是为了让单测注入,
+/// 避免 `std::env::set_var` 在并行测试线程里与 `getenv` 竞态。
+fn find_bridge_avr_impl(env_override: Option<String>) -> Result<PathBuf> {
+    if let Some(p) = env_override {
         return Ok(PathBuf::from(p));
     }
     if let Ok(exe) = std::env::current_exe() {
@@ -308,7 +451,12 @@ pub fn find_bridge_avr() -> Result<PathBuf> {
 const BRIDGE_STM32_SRC: &str = include_str!("../bridge/stm32/bridge-stm32.c");
 
 pub fn find_bridge_stm32() -> Result<PathBuf> {
-    if let Ok(p) = std::env::var("MOXIN_BRIDGE_STM32") {
+    find_bridge_stm32_impl(std::env::var("MOXIN_BRIDGE_STM32").ok())
+}
+
+/// `env_override` = `$MOXIN_BRIDGE_STM32` 的值,拆分理由同 `find_bridge_avr_impl`。
+fn find_bridge_stm32_impl(env_override: Option<String>) -> Result<PathBuf> {
+    if let Some(p) = env_override {
         return Ok(PathBuf::from(p));
     }
     let cache_dir = dirs_cache_dir()?;
@@ -358,18 +506,14 @@ mod tests {
 
     #[test]
     fn find_bridge_avr_uses_env_var() {
-        std::env::set_var("MOXIN_BRIDGE", "/tmp/fake-bridge");
-        let p = find_bridge_avr().unwrap();
+        let p = find_bridge_avr_impl(Some("/tmp/fake-bridge".to_string())).unwrap();
         assert_eq!(p, PathBuf::from("/tmp/fake-bridge"));
-        std::env::remove_var("MOXIN_BRIDGE");
     }
 
     #[test]
     fn find_bridge_stm32_uses_env_var() {
-        std::env::set_var("MOXIN_BRIDGE_STM32", "/tmp/fake-stm32-bridge");
-        let p = find_bridge_stm32().unwrap();
+        let p = find_bridge_stm32_impl(Some("/tmp/fake-stm32-bridge".to_string())).unwrap();
         assert_eq!(p, PathBuf::from("/tmp/fake-stm32-bridge"));
-        std::env::remove_var("MOXIN_BRIDGE_STM32");
     }
 
     #[test]
@@ -476,6 +620,173 @@ mod tests {
         let s = state.lock().unwrap();
         assert_eq!(s.get_arduino_analog(3), Some(true));
         assert_eq!(s.get_arduino_analog(0), None);
+    }
+
+    /// 喂入 duty_us/period_us 的方波,返回最后一个上升沿收口的采样。
+    fn feed_square_wave(
+        tracker: &mut PwmTracker,
+        period_us: u64,
+        high_us: u64,
+        cycles: u64,
+    ) -> Option<PwmSample> {
+        let mut last = None;
+        for n in 0..cycles {
+            let rise = n * period_us;
+            if let Some(s) = tracker.observe(1, rise) {
+                last = Some(s);
+            }
+            tracker.observe(0, rise + high_us);
+        }
+        last
+    }
+
+    #[test]
+    fn pwm_tracker_detects_stable_1khz_50pct() {
+        let mut t = PwmTracker::default();
+        let sample = feed_square_wave(&mut t, 1000, 500, 5).expect("should yield a sample");
+        assert_eq!(sample.duty, 128, "500/1000 us → analogWrite 值域下 50% = 128");
+        assert_eq!(sample.freq_hz, 1000);
+        assert!(sample.stable, "5 个等周期后应判定 stable");
+    }
+
+    #[test]
+    fn pwm_tracker_single_toggle_is_not_stable() {
+        let mut t = PwmTracker::default();
+        // 只有一个上升沿 + 一个下降沿:凑不出完整周期,无采样
+        assert!(t.observe(1, 0).is_none());
+        assert!(t.observe(0, 500).is_none());
+        // 第二个上升沿收口第一个周期:有采样但数据不足,不能算稳定
+        let s = t.observe(1, 1000).expect("first full period yields a sample");
+        assert!(!s.stable);
+    }
+
+    #[test]
+    fn pwm_tracker_irregular_intervals_not_recognized() {
+        let mut t = PwmTracker::default();
+        // 周期 1000 → 3000 → 700 → 2100 us,相邻偏差远超 5%
+        let mut last = None;
+        for (rise, fall) in [(0u64, 500), (1000, 2500), (4000, 4300), (4700, 6000)] {
+            if let Some(s) = t.observe(1, rise) {
+                last = Some(s);
+            }
+            t.observe(0, fall);
+        }
+        if let Some(s) = t.observe(1, 6800) {
+            last = Some(s);
+        }
+        let s = last.expect("samples are produced per period");
+        assert!(!s.stable, "不规则间隔不能判定为 PWM");
+    }
+
+    #[test]
+    fn pwm_tracker_ignores_repeated_levels() {
+        let mut t = PwmTracker::default();
+        assert!(t.observe(1, 0).is_none());
+        assert!(t.observe(1, 100).is_none(), "重复电平不是边沿");
+        t.observe(0, 500);
+        let s = t.observe(1, 1000).unwrap();
+        assert_eq!(s.freq_hz, 1000, "重复电平不得干扰周期计算");
+    }
+
+    #[test]
+    fn apply_event_pin_feeds_pwm_and_get_pwm_expires() {
+        let state = Arc::new(Mutex::new(RunState::default()));
+        // 4 个完整周期的 1kHz 50% 方波(D9 = PORTB bit 1)
+        for n in 0u64..4 {
+            let rise = format!(
+                r#"{{"event":"pin","t_us":{},"port":"B","bit":1,"value":1}}"#,
+                n * 1000
+            );
+            let fall = format!(
+                r#"{{"event":"pin","t_us":{},"port":"B","bit":1,"value":0}}"#,
+                n * 1000 + 500
+            );
+            apply_event(&state, serde_json::from_str(&rise).unwrap(), &|_, _| false);
+            apply_event(&state, serde_json::from_str(&fall).unwrap(), &|_, _| false);
+        }
+        {
+            let s = state.lock().unwrap();
+            let sample = s.get_pwm('B', 1).expect("fresh sample available");
+            assert_eq!(sample.duty, 128);
+            assert!(sample.stable);
+            assert!(s.get_pwm('B', 2).is_none(), "没有事件的引脚无 PWM");
+        }
+        // 波形停止:另一引脚把仿真时间推进 3 个周期以上 → 样本过期
+        let ev = r#"{"event":"pin","t_us":60000,"port":"D","bit":2,"value":1}"#;
+        apply_event(&state, serde_json::from_str(ev).unwrap(), &|_, _| false);
+        assert!(
+            state.lock().unwrap().get_pwm('B', 1).is_none(),
+            "超过 3 个周期无新边沿的样本应过期"
+        );
+    }
+
+    #[test]
+    fn apply_event_hello_records_protocol_and_capabilities() {
+        let state = Arc::new(Mutex::new(RunState::default()));
+        let ev: BridgeEvent = serde_json::from_str(
+            r#"{"event":"hello","protocol":"1","capabilities":["adc","serial"]}"#,
+        )
+        .expect("hello event should deserialize from real bridge JSON");
+        apply_event(&state, ev, &|_, _| false);
+        let s = state.lock().unwrap();
+        assert_eq!(s.bridge_protocol.as_deref(), Some("1"));
+        assert_eq!(s.bridge_capabilities, vec!["adc", "serial"]);
+    }
+
+    #[test]
+    fn apply_event_adc_updates_channel_value() {
+        let state = Arc::new(Mutex::new(RunState::default()));
+        let ev: BridgeEvent = serde_json::from_str(
+            r#"{"event":"adc","t_us":777,"channel":0,"value":512}"#,
+        )
+        .expect("adc event should deserialize from real bridge JSON");
+        apply_event(&state, ev, &|_, _| false);
+        let s = state.lock().unwrap();
+        assert_eq!(s.adc_values.get(&0), Some(&512));
+        assert_eq!(s.last_event_t_us, 777);
+        assert!(!s.adc_values.contains_key(&1));
+    }
+
+    #[test]
+    fn apply_event_adc_clamps_to_10bit() {
+        let state = Arc::new(Mutex::new(RunState::default()));
+        let ev: BridgeEvent = serde_json::from_str(
+            r#"{"event":"adc","t_us":1,"channel":3,"value":40000}"#,
+        )
+        .unwrap();
+        apply_event(&state, ev, &|_, _| false);
+        assert_eq!(state.lock().unwrap().adc_values.get(&3), Some(&1023));
+    }
+
+    #[test]
+    fn old_bridge_without_hello_has_no_capabilities() {
+        // 老 bridge 只发 ready:capabilities 保持空 → set_adc 会拒绝
+        let state = Arc::new(Mutex::new(RunState::default()));
+        let ev: BridgeEvent = serde_json::from_str(
+            r#"{"event":"ready","mcu":"atmega328p","freq":16000000}"#,
+        )
+        .unwrap();
+        apply_event(&state, ev, &|_, _| false);
+        let s = state.lock().unwrap();
+        assert!(s.ready);
+        assert!(s.bridge_protocol.is_none());
+        assert!(s.bridge_capabilities.is_empty());
+    }
+
+    #[test]
+    fn dirty_flag_starts_set_and_reset_after_event() {
+        // 初值 true:启动后第一轮轮询要落初始快照
+        let state = Arc::new(Mutex::new(RunState::default()));
+        assert!(state.lock().unwrap().dirty);
+
+        // 写盘方清零后,新事件必须重新置脏
+        state.lock().unwrap().dirty = false;
+        let ev: BridgeEvent = serde_json::from_str(
+            r#"{"event":"pin","t_us":100,"port":"B","bit":5,"value":1}"#,
+        )
+        .unwrap();
+        apply_event(&state, ev, &|_, _| false);
+        assert!(state.lock().unwrap().dirty);
     }
 
     #[test]

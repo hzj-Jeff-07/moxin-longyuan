@@ -124,6 +124,7 @@ impl Shell {
             "edit" => self.cmd_edit(),
             "build" => self.cmd_build(),
             "run" => self.cmd_run_sim(),
+            "adc" => self.cmd_adc(&rest),
             "stop" => self.cmd_stop(),
             "sleep" => self.cmd_sleep(&rest),
             "help" | "?" => Ok(help_text()),
@@ -255,6 +256,34 @@ impl Shell {
         Ok(format!("✓ simulator started ({})", self.board.board_name()))
     }
 
+    /// `adc <A0..A5|channel> <0..1023>` — 向运行中的仿真注入 ADC 值。
+    fn cmd_adc(&mut self, args: &[&str]) -> Result<String> {
+        let (Some(ch_arg), Some(val_arg)) = (args.first(), args.get(1)) else {
+            bail!("usage: adc <A0..A5|channel> <0..1023>");
+        };
+        let spec = self.board.spec();
+        let channel = if let Some(rest) = ch_arg.strip_prefix(['A', 'a']) {
+            let a_pin: u8 = rest
+                .parse()
+                .map_err(|_| anyhow!("invalid analog pin: {}", ch_arg))?;
+            spec.adc_channel_for(a_pin).ok_or_else(|| {
+                anyhow!("{} has no ADC channel on {}", ch_arg.to_uppercase(), spec.board_id)
+            })?
+        } else {
+            ch_arg
+                .parse()
+                .map_err(|_| anyhow!("invalid channel: {}", ch_arg))?
+        };
+        let value: u16 = val_arg
+            .parse()
+            .map_err(|_| anyhow!("invalid value: {} (expect 0..1023)", val_arg))?;
+        let Some(sim) = self.running.as_mut() else {
+            bail!("simulator not running — try `run`");
+        };
+        sim.set_adc(channel, value)?;
+        Ok(format!("✓ adc ch{} = {}", channel, value.min(1023)))
+    }
+
     fn cmd_stop(&mut self) -> Result<String> {
         if let Some(sim) = self.running.take() {
             sim.stop();
@@ -295,6 +324,7 @@ fn help_text() -> String {
   edit                             open src/main.ino in $EDITOR
   build                            compile via arduino-cli
   run                              start simavr simulator
+  adc <A0..A5|ch> <0..1023>        inject ADC value (potentiometer knob)
   stop                             stop simulator
   exit | quit                      leave shell",
     )
@@ -411,6 +441,34 @@ mod tests {
         let tmp = TempDir::new().expect("tempdir");
         let mut shell = make_shell(&tmp);
         assert!(shell.dispatch("add resistor --id r1").is_err());
+    }
+
+    #[test]
+    fn adc_without_running_sim_is_error() {
+        let tmp = TempDir::new().expect("tempdir");
+        let mut shell = make_shell(&tmp);
+        let res = shell.dispatch("adc A0 512");
+        assert!(res.is_err());
+        assert!(res.unwrap_err().to_string().contains("not running"));
+    }
+
+    #[test]
+    fn adc_invalid_pin_is_error() {
+        let tmp = TempDir::new().expect("tempdir");
+        let mut shell = make_shell(&tmp);
+        // A9 不存在:通道解析先于"仿真未运行"检查报错
+        let res = shell.dispatch("adc A9 512");
+        assert!(res.is_err());
+        assert!(res.unwrap_err().to_string().contains("no ADC channel"));
+    }
+
+    #[test]
+    fn adc_usage_error_without_args() {
+        let tmp = TempDir::new().expect("tempdir");
+        let mut shell = make_shell(&tmp);
+        let res = shell.dispatch("adc");
+        assert!(res.is_err());
+        assert!(res.unwrap_err().to_string().contains("usage"));
     }
 
     #[test]
