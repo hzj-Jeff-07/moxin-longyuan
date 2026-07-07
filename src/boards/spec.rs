@@ -17,6 +17,9 @@ pub struct BoardSpec {
     pub d13_bridge_port: &'static str,
     /// bridge 协议里 D13 LED 对应的 bit 编号（simavr: 5, stm32: 13）
     pub d13_bridge_bit: u32,
+    /// 支持硬件 PWM(analogWrite)的数字引脚号。LED 只对这些引脚显示占空比,
+    /// 避免把慢速 blink 方波误读成调光(Uno: D3/D5/D6/D9/D10/D11)。
+    pub pwm_pins: &'static [u8],
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

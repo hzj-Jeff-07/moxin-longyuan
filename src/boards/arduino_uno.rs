@@ -42,6 +42,7 @@ pub static ARDUINO_UNO_SPEC: BoardSpec = BoardSpec {
     gpio_count: 14,
     d13_bridge_port: "B",
     d13_bridge_bit: 5,
+    pwm_pins: &[3, 5, 6, 9, 10, 11],
 };
 
 pub const BLINK_INO_TEMPLATE: &str = r#"// 由 moxin new 自动生成
@@ -198,5 +199,17 @@ mod tests {
         tmp.write_all(hex.as_bytes()).expect("write hex bytes");
         let n = ihex_program_size(tmp.path()).expect("parse hex");
         assert_eq!(n, 16 + 12);
+    }
+
+    #[test]
+    fn uno_pwm_pins_match_atmega328p_timers() {
+        // analogWrite 可用引脚 = Timer0/1/2 的 OC 输出
+        assert_eq!(ARDUINO_UNO_SPEC.pwm_pins, &[3, 5, 6, 9, 10, 11]);
+        // 每个 pwm 引脚必须真实存在于 pins 表里
+        for n in ARDUINO_UNO_SPEC.pwm_pins {
+            assert!(ARDUINO_UNO_SPEC.find_pin(&format!("D{}", n)).is_some());
+        }
+        // D13(板载 LED / blink)不是 PWM 引脚,慢速 blink 不能被当成调光
+        assert!(!ARDUINO_UNO_SPEC.pwm_pins.contains(&13));
     }
 }

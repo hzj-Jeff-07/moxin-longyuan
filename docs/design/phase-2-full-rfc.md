@@ -391,18 +391,18 @@ pub struct BoardSpec {
 - [ ] 5 个新单测 + 1 个 example
 - [ ] commit:`feat(adc): real ADC injection via simavr IRQ`
 
-### Step 3 — PWM 真仿真
-- [ ] `PwmTracker` 实现 + 单测(波形识别)
-- [ ] `RunState::pwm` + 事件循环接入
-- [ ] `BoardSpec::pwm_pins` + Arduino UNO 配置
-- [ ] `buzzer` / `led` 渲染升级(显频率/亮度)
-- [ ] 6 个新单测 + 1 个 example(`pwm-fade`)
-- [ ] commit:`feat(pwm): edge-based PWM duty/freq tracking`
+### Step 3 — PWM 真仿真(✅ 2026-07-07,先于 Step 2 完成 — 纯 Rust 侧,不动 bridge)
+- [x] `PwmTracker` 实现 + 单测(波形识别)
+- [x] `RunState::pwm` + 事件循环接入(含样本过期判定 `get_pwm`,3 周期无边沿即过期)
+- [x] `BoardSpec::pwm_pins` + Arduino UNO 配置(&[3,5,6,9,10,11])
+- [x] `buzzer` / `led` 渲染升级(buzzer 显 "♪ 1000Hz",led 显占空比 %;<20Hz 慢速 blink 不误判)
+- [x] 6+ 个新单测 + 1 个 example(`pwm-fade`)— cargo test 135 过
+- [x] commit:`feat(pwm): edge-based PWM duty/freq tracking`
 
 ### Step 4 — examples
-- [ ] `examples/adc-potentiometer/`
-- [ ] `examples/pwm-fade/`
-- [ ] 各带 README + moxin.toml + main.ino
+- [ ] `examples/adc-potentiometer/`(依赖 Step 2)
+- [x] `examples/pwm-fade/`
+- [x] 各带 README + moxin.toml + main.ino(pwm-fade 部分)
 - [ ] commit:`docs(examples): add 2 phase-2-full examples`
 
 ### Step 5 — 文档 + 收尾
@@ -455,5 +455,8 @@ pub struct BoardSpec {
 | 2026-05-27 | PWM 在 Rust 侧基于边沿时间推导(优先) | bridge C 改动最小,降低风险;不行再切 Plan B 真 hook simavr Timer |
 | 2026-05-27 | bridge 协议加 `hello` + version `"1"` | 避免老 moxin 跑新 bridge 时静默丢事件;为 Phase 3 留升级口 |
 | 2026-05-27 | ADC 走 stdin 命令(`adc <ch> <value>`) | 复用现有 stdin 管道(simavr 之前空读,改成读行);不引入额外 IPC 机制 |
+| 2026-07-07 | Step 3 先于 Step 2 落地 | PWM 方案纯 Rust 侧、零 bridge 改动,可立即做;ADC 需改 bridge/*.c,按 CLAUDE.md 约定等用户再确认一次 |
+| 2026-07-07 | PWM 采样加 `t_us` + `get_pwm` 过期判定(3 周期无边沿即过期) | 呼吸灯扫到 0/255 时波形停止,旧样本不能一直挂着;渲染回退 ON/OFF |
+| 2026-07-07 | LED 调光显示限 `pwm_pins` + ≥20Hz | 防止 D13 慢速 blink(1Hz 方波也"稳定")被误显示成占空比;buzzer 不限引脚(tone() 任意脚) |
 
 后续决策追加在此表底部。

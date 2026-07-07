@@ -1,7 +1,11 @@
 use crate::board::PinRef;
 use crate::boards::BoardSpec;
-use crate::sim::{LedLevel, RunState};
+use crate::sim::{LedLevel, PwmSample, RunState};
 use ratatui::style::Color;
+
+/// 低于这个频率的方波按普通 GPIO 翻转(blink)对待,不显示为 PWM。
+/// analogWrite 最低 490Hz、tone() 最低 31Hz,20Hz 以下只可能是 delay 循环。
+pub const PWM_DISPLAY_MIN_FREQ_HZ: u32 = 20;
 
 pub fn pin_label_padded(pin: &PinRef) -> String {
     match pin {
@@ -37,6 +41,38 @@ pub fn pin_level(pin: &PinRef, state: &RunState, spec: &BoardSpec) -> LedLevel {
     match level {
         Some(true) => LedLevel::On,
         _ => LedLevel::Off,
+    }
+}
+
+/// 引脚上仍在持续的、稳定且频率达标的 PWM 采样;
+/// 不稳定 / 已停止(过期)/ 慢速 blink → `None`,渲染回退 ON/OFF。
+pub fn pin_pwm(pin: &PinRef, state: &RunState) -> Option<PwmSample> {
+    let (port, bit) = match pin {
+        PinRef::BoardDigital(n) => RunState::arduino_digital_to_port_bit(*n)?,
+        PinRef::BoardAnalog(n) => RunState::arduino_analog_to_port_bit(*n)?,
+        _ => return None,
+    };
+    state
+        .get_pwm(port, bit)
+        .filter(|s| s.stable && s.freq_hz >= PWM_DISPLAY_MIN_FREQ_HZ)
+}
+
+/// 引脚是否支持硬件 PWM(analogWrite)。LED 调光显示只对这些引脚开启。
+pub fn pin_is_pwm_capable(pin: &PinRef, spec: &BoardSpec) -> bool {
+    matches!(pin, PinRef::BoardDigital(n) if spec.pwm_pins.contains(n))
+}
+
+/// duty(0..=255,analogWrite 值域)→ 百分比 0..=100,四舍五入。
+pub fn duty_percent(duty: u8) -> u32 {
+    (duty as u32 * 100 + 127) / 255
+}
+
+/// PWM 频率显示:`"980Hz"` / `"31.4kHz"`。
+pub fn format_freq(freq_hz: u32) -> String {
+    if freq_hz >= 10_000 {
+        format!("{:.1}kHz", freq_hz as f64 / 1000.0)
+    } else {
+        format!("{}Hz", freq_hz)
     }
 }
 

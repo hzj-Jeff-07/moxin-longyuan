@@ -1,0 +1,16 @@
+[project]
+name = "pwm-fade"
+board = "arduino-uno"
+version = "0.2"
+
+[[component]]
+id = "led1"
+type = "led"
+color = "green"
+
+[[wire]]
+from = "board.D9"
+to = "led1.a"
+
+[code]
+src = "src/main.ino"
