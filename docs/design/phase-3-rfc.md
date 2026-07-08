@@ -148,9 +148,12 @@ RGB LED 三端子、电机 ena/in1/in2 都走 **wire 端子名**(`rgb1.r`),
 - [x] Step 2:rgb_led + rgb-rainbow example(2026-07-07)
 - [x] Step 3:servo + servo-sweep example(2026-07-07,50Hz 软 PWM 版固件,不依赖 Servo.h)
 - [x] Step 4:dc_motor(2026-07-07;不单开 example,组合示例留 Step 5 之后评估)
-- [ ] Step 5:HC-SR04(bridge sr04/dist 命令 + echo 调度)+ example + CI 关卡(**动 bridge 前需用户确认**)
+- [x] Step 5:HC-SR04(bridge sr04/dist 命令 + echo 调度)+ example + CI 关卡(2026-07-07,用户已确认 bridge 改动)
 - [x] Step 6:Arduino Nano 板 + spec 单测(2026-07-07,avr_build/avr_spawn_sim 抽共用,A6/A7 ADC-only)
-- [ ] Step 7:文档收尾(README / CLAUDE.md / bridge-protocol.md)+ v0.6.0 release
+- [x] Step 7:文档收尾(README / CLAUDE.md / bridge-protocol.md)+ 版本号 0.6.0(2026-07-07;tag 待用户授权)
+
+**批次 A 完工(2026-07-07)**:cargo test 173 / clippy 0 / 元件 13 种 / 板 4 块 / examples 16 个。
+遗留:bridge sr04 改动过桩头语法校验,真机 e2e 靠 CI verify 新增的 ultrasonic 关卡。
 
 ## 八、决策记录
 
