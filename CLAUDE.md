@@ -13,7 +13,9 @@
   - Step 3 PWM 追踪 ✅(纯 Rust 侧 PwmTracker,含 pwm-fade example,2026-07-07)
   - Step 2 ADC 真仿真 ✅(bridge stdin 命令通道 + IRQ 注入,经用户确认,2026-07-07;顺带修复 AVR serial 事件缺失)
   - Step 4 examples ✅(adc-potentiometer + pwm-fade)/ Step 5 文档收尾 ✅(README + 版本号 0.5.0,2026-07-07)
-  - 剩:PR 合并 main + tag `v0.5.0` + push tag(**均需用户授权**)+ bridge 真机验证(CI verify 关卡)
+  - PR #3 已合并 main(2026-07-07);CI verify 真机关卡全绿(bridge 编译 + blink/serial e2e)
+  - 剩:tag `v0.5.0` + push tag(本环境推不了 tag,**需用户本地执行**)
+- **Phase 3(v0.6.0/v0.7.0)**:📝 RFC 草案已写,见 `docs/design/phase-3-rfc.md`,**待用户批准**(六节 4 个问题需拍板)
 - `docs/planning/`(7day 计划)已与实际历史脱节,仅作参考,进度以 git log + RFC 勾选为准
 
 ✅ 当前范围:
