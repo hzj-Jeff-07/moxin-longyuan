@@ -15,17 +15,20 @@
   - Step 4 examples ✅(adc-potentiometer + pwm-fade)/ Step 5 文档收尾 ✅(README + 版本号 0.5.0,2026-07-07)
   - PR #3 已合并 main(2026-07-07);CI verify 真机关卡全绿(bridge 编译 + blink/serial e2e)
   - 剩:tag `v0.5.0` + push tag(本环境推不了 tag,**需用户本地执行**)
-- **Phase 3(v0.6.0/v0.7.0)**:📝 RFC 草案已写,见 `docs/design/phase-3-rfc.md`,**待用户批准**(六节 4 个问题需拍板)
+- **Phase 3 批次 A(v0.6.0)**:🚧 进行中,权威计划见 `docs/design/phase-3-rfc.md`(Step 0 按推荐项开工,决策见 RFC 七节)
+  - A1 photoresistor ✅ / A2 rgb_led ✅ / A3 servo ✅ / A4 dc_motor ✅ / A6 Arduino Nano ✅(2026-07-07)
+  - A5 HC-SR04 ❌:唯一需要动 bridge 的一件,**动手前需用户再确认一次**
+  - 批次 B(v0.7.0:DHT11/LCD/OLED/F103/红外)未启动
 - `docs/planning/`(7day 计划)已与实际历史脱节,仅作参考,进度以 git log + RFC 勾选为准
 
 ✅ 当前范围:
-- Arduino Uno (simavr) + STM32F405 (qemu netduinoplus2) 双板
-- 元件 9 种(led / button / resistor / buzzer / potentiometer / seven_segment / breadboard / dupont 等),经 `src/components/` 注册式接入
+- Arduino Uno / Arduino Nano (simavr,同 bridge) + STM32F405 (qemu netduinoplus2)
+- 元件 12 种(led / button / resistor / buzzer / potentiometer / photoresistor / rgb_led / servo / dc_motor / seven_segment / breadboard / dupont),经 `src/components/` 注册式接入
 - 新增元件 = `src/components/<name>.rs` 实现 `ComponentDef` + `Registry::builtin()` 注册一行,**不改 render/shell/inspector 主路径**
 
 ❌ 不做(明确禁区):
 - 不写 AVR / ARM / RISC-V CPU 内核
-- 不加 ESP32 / RP2040 / Arduino Nano(没现成 bridge)
+- 不加 ESP32 / RP2040(主线 QEMU/simavr 无现成机型;Nano 已于 Phase 3 解禁,同 ATmega328P 复用 simavr bridge)
 - 不加 I2C / SPI / OLED / LCD1602 / DHT11(留 Phase 3 / v0.6.0)
 - 不做 GUI / Tauri / Web 前端
 - 不实现 MCP server(留 v3)
@@ -90,7 +93,7 @@ src/
     gd32vf103.rs    占位:build/spawn_sim 必须 bail "not yet implemented"
 bridge/             C 源码,Claude 不主动改
 components/         元件 schema TOML(与 src/components/ 对齐)
-examples/           ≤12 个(当前 12,已到上限;Phase 3 加例子前先调此规则),新增需含 README + moxin.toml
+examples/           ≤18 个(Phase 3 起上调,当前 15),新增需含 README + moxin.toml
 docs/design/        设计文档(bridge-protocol、cli-vision、phase-2-full-rfc 是权威)
 ```
 
@@ -120,7 +123,7 @@ bridge 子进程从 stdout 每行输出一条 JSON:
 ```toml
 [project]
 name = "blink"
-board = "arduino-uno"   # arduino-uno | stm32 | gd32vf103
+board = "arduino-uno"   # arduino-uno | arduino-nano | stm32 | gd32vf103
 version = "0.2"
 
 [code]

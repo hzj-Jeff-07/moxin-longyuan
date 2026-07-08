@@ -1,3 +1,4 @@
+mod arduino_nano;
 mod arduino_uno;
 mod gd32vf103;
 mod spec;
@@ -25,9 +26,10 @@ pub trait BoardImpl {
 pub fn board_from_str(s: &str) -> Result<Box<dyn BoardImpl>> {
     match s {
         "arduino-uno" | "uno" => Ok(Box::new(arduino_uno::ArduinoUno)),
+        "arduino-nano" | "nano" => Ok(Box::new(arduino_nano::ArduinoNano)),
         "stm32" | "stm32f405" => Ok(Box::new(stm32f405::Stm32f405)),
         "gd32vf103" | "gd32" => Ok(Box::new(gd32vf103::Gd32vf103)),
-        other => bail!("unsupported board `{}` — supported: arduino-uno, stm32, gd32vf103", other),
+        other => bail!("unsupported board `{}` — supported: arduino-uno, arduino-nano, stm32, gd32vf103", other),
     }
 }
 
@@ -41,6 +43,22 @@ mod tests {
     fn board_from_str_arduino_uno() {
         assert!(board_from_str("arduino-uno").is_ok());
         assert!(board_from_str("uno").is_ok());
+    }
+
+    #[test]
+    fn board_from_str_arduino_nano() {
+        assert!(board_from_str("arduino-nano").is_ok());
+        assert!(board_from_str("nano").is_ok());
+    }
+
+    #[test]
+    fn arduino_nano_spec_metadata() {
+        let b = board_from_str("nano").unwrap();
+        let s = b.spec();
+        assert_eq!(s.board_id, "arduino-nano");
+        assert_eq!(s.mcu, "ATmega328P");
+        assert_eq!(s.artifact_ext(), "hex");
+        assert!(s.find_pin("A7").is_some());
     }
 
     #[test]

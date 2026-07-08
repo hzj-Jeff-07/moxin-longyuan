@@ -144,12 +144,12 @@ RGB LED 三端子、电机 ena/in1/in2 都走 **wire 端子名**(`rgb1.r`),
 - [x] Step 0:交互提问通道故障,按用户连续"继续/按照你的要求来"的委托采用推荐项开工
       (1 分批=RFC 方案;2 examples 上限→18;3 Nano 移出禁区;4 bridge **保守项:动手前再确认**)。
       用户可随时推翻,推翻即 revert 对应 commit
-- [ ] Step 1:photoresistor + ldr-nightlight example
-- [ ] Step 2:rgb_led + rgb-rainbow example
-- [ ] Step 3:servo + servo-sweep example
-- [ ] Step 4:dc_motor(example 视上限决定)
-- [ ] Step 5:HC-SR04(bridge sr04/dist 命令 + echo 调度)+ example + CI 关卡
-- [ ] Step 6:Arduino Nano 板 + spec 单测
+- [x] Step 1:photoresistor + ldr-nightlight example(2026-07-07)
+- [x] Step 2:rgb_led + rgb-rainbow example(2026-07-07)
+- [x] Step 3:servo + servo-sweep example(2026-07-07,50Hz 软 PWM 版固件,不依赖 Servo.h)
+- [x] Step 4:dc_motor(2026-07-07;不单开 example,组合示例留 Step 5 之后评估)
+- [ ] Step 5:HC-SR04(bridge sr04/dist 命令 + echo 调度)+ example + CI 关卡(**动 bridge 前需用户确认**)
+- [x] Step 6:Arduino Nano 板 + spec 单测(2026-07-07,avr_build/avr_spawn_sim 抽共用,A6/A7 ADC-only)
 - [ ] Step 7:文档收尾(README / CLAUDE.md / bridge-protocol.md)+ v0.6.0 release
 
 ## 八、决策记录

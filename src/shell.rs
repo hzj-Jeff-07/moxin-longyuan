@@ -315,6 +315,10 @@ fn help_text() -> String {
         resistor <ohms>              resistor (e.g. 10k, 4.7k, 470)
         buzzer                       piezo buzzer
         pot [max_ohms]               potentiometer (default 10k)
+        ldr                          photoresistor (ambient light)
+        rgb                          RGB LED (wire r/g/b terminals)
+        servo                        SG90 servo (50Hz PWM)
+        motor                        DC motor via L298N (ena/in1/in2)
         7seg                         seven-segment display
         breadboard                   breadboard
         dupont [color]               dupont jumper wire
