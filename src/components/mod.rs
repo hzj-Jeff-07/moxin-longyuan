@@ -21,6 +21,7 @@ mod button;
 mod buzzer;
 mod dupont;
 mod led;
+mod photoresistor;
 mod potentiometer;
 mod resistor;
 mod seven_segment;
@@ -71,6 +72,12 @@ pub trait ComponentDef: Send + Sync {
     fn inspector_extra(&self, _comp: &Component) -> Option<String> {
         None
     }
+
+    /// 是否是"可旋钮调节的 ADC 输入件"(电位器/光敏)。
+    /// TUI 的 Tab 聚焦候选按此过滤,聚焦后 ←/→ 走 `set_adc` 注入。
+    fn adc_knob(&self) -> bool {
+        false
+    }
 }
 
 pub struct Registry {
@@ -104,7 +111,7 @@ impl Registry {
         self.by_kind.get(canonical).map(|a| a.as_ref())
     }
 
-    /// 内置 8 件元件的标准注册。
+    /// 内置元件的标准注册。
     pub fn builtin() -> Self {
         let mut r = Self::empty();
         r.register(Arc::new(led::Led));
@@ -112,6 +119,7 @@ impl Registry {
         r.register(Arc::new(resistor::Resistor));
         r.register(Arc::new(buzzer::Buzzer));
         r.register(Arc::new(potentiometer::Potentiometer));
+        r.register(Arc::new(photoresistor::Photoresistor));
         r.register(Arc::new(seven_segment::SevenSegment));
         r.register(Arc::new(breadboard::Breadboard));
         r.register(Arc::new(dupont::Dupont));

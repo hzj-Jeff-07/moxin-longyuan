@@ -316,12 +316,13 @@ fn pot_adc_channel(project: &Project, spec: &BoardSpec, comp_id: &str) -> Option
     None
 }
 
-/// Tab 循环聚焦的候选:项目里所有电位器的 id(按 add 顺序)。
+/// Tab 循环聚焦的候选:项目里所有 ADC 旋钮件(电位器/光敏,按 add 顺序)。
 fn knob_candidates(project: &Project) -> Vec<String> {
+    let reg = crate::components::registry();
     project
         .components
         .iter()
-        .filter(|c| c.kind == "potentiometer")
+        .filter(|c| reg.resolve(&c.kind).is_some_and(|d| d.adc_knob()))
         .map(|c| c.id.clone())
         .collect()
 }

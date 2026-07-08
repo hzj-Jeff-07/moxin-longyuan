@@ -141,7 +141,9 @@ RGB LED 三端子、电机 ena/in1/in2 都走 **wire 端子名**(`rgb1.r`),
 
 ## 七、实施步骤(批次 A,可勾选)
 
-- [ ] Step 0:用户批准本 RFC(第六节 4 个问题拍板)
+- [x] Step 0:交互提问通道故障,按用户连续"继续/按照你的要求来"的委托采用推荐项开工
+      (1 分批=RFC 方案;2 examples 上限→18;3 Nano 移出禁区;4 bridge **保守项:动手前再确认**)。
+      用户可随时推翻,推翻即 revert 对应 commit
 - [ ] Step 1:photoresistor + ldr-nightlight example
 - [ ] Step 2:rgb_led + rgb-rainbow example
 - [ ] Step 3:servo + servo-sweep example

@@ -36,6 +36,10 @@ impl ComponentDef for Potentiometer {
         &["pot"]
     }
 
+    fn adc_knob(&self) -> bool {
+        true
+    }
+
     fn build(&self, id: String, args: &[String]) -> Result<Component> {
         let max_ohms = args
             .first()
