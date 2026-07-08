@@ -28,6 +28,7 @@ mod resistor;
 mod rgb_led;
 mod servo;
 mod seven_segment;
+mod ultrasonic;
 
 /// 元件类型定义 trait。一个实现 = 一种元件类型(led / button / ...)。
 pub trait ComponentDef: Send + Sync {
@@ -126,6 +127,7 @@ impl Registry {
         r.register(Arc::new(rgb_led::RgbLed));
         r.register(Arc::new(servo::Servo));
         r.register(Arc::new(dc_motor::DcMotor));
+        r.register(Arc::new(ultrasonic::Ultrasonic));
         r.register(Arc::new(seven_segment::SevenSegment));
         r.register(Arc::new(breadboard::Breadboard));
         r.register(Arc::new(dupont::Dupont));

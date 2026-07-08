@@ -125,6 +125,7 @@ impl Shell {
             "build" => self.cmd_build(),
             "run" => self.cmd_run_sim(),
             "adc" => self.cmd_adc(&rest),
+            "dist" => self.cmd_dist(&rest),
             "stop" => self.cmd_stop(),
             "sleep" => self.cmd_sleep(&rest),
             "help" | "?" => Ok(help_text()),
@@ -251,7 +252,8 @@ impl Shell {
         if !artifact.exists() {
             bail!("artifact not found at {} — run `build` first", artifact.display());
         }
-        let sim = self.board.spawn_sim(&self.root, &artifact, false)?;
+        let mut sim = self.board.spawn_sim(&self.root, &artifact, false)?;
+        crate::sim::configure_ultrasonics(&mut sim, &self.project, self.board.spec())?;
         self.running = Some(sim);
         Ok(format!("✓ simulator started ({})", self.board.board_name()))
     }
@@ -282,6 +284,21 @@ impl Shell {
         };
         sim.set_adc(channel, value)?;
         Ok(format!("✓ adc ch{} = {}", channel, value.min(1023)))
+    }
+
+    /// `dist <cm>` — 设定超声波距离(2..400cm)。
+    fn cmd_dist(&mut self, args: &[&str]) -> Result<String> {
+        let Some(cm_arg) = args.first() else {
+            bail!("usage: dist <2..400>  (cm)");
+        };
+        let cm: u16 = cm_arg
+            .parse()
+            .map_err(|_| anyhow!("invalid distance: {} (expect 2..400 cm)", cm_arg))?;
+        let Some(sim) = self.running.as_mut() else {
+            bail!("simulator not running — try `run`");
+        };
+        sim.set_distance(cm)?;
+        Ok(format!("✓ dist = {}cm", cm.clamp(2, 400)))
     }
 
     fn cmd_stop(&mut self) -> Result<String> {
@@ -329,6 +346,7 @@ fn help_text() -> String {
   build                            compile via arduino-cli
   run                              start simavr simulator
   adc <A0..A5|ch> <0..1023>        inject ADC value (potentiometer knob)
+  dist <2..400>                    set ultrasonic distance in cm
   stop                             stop simulator
   exit | quit                      leave shell",
     )
@@ -473,6 +491,32 @@ mod tests {
         let res = shell.dispatch("adc");
         assert!(res.is_err());
         assert!(res.unwrap_err().to_string().contains("usage"));
+    }
+
+    #[test]
+    fn dist_without_running_sim_is_error() {
+        let tmp = TempDir::new().expect("tempdir");
+        let mut shell = make_shell(&tmp);
+        let res = shell.dispatch("dist 100");
+        assert!(res.is_err());
+        assert!(res.unwrap_err().to_string().contains("not running"));
+    }
+
+    #[test]
+    fn dist_invalid_arg_is_error() {
+        let tmp = TempDir::new().expect("tempdir");
+        let mut shell = make_shell(&tmp);
+        assert!(shell.dispatch("dist abc").is_err());
+        assert!(shell.dispatch("dist").is_err());
+    }
+
+    #[test]
+    fn add_ultrasonic_via_alias() {
+        let tmp = TempDir::new().expect("tempdir");
+        let mut shell = make_shell(&tmp);
+        let msg = shell.dispatch("add sr04 --id us1").unwrap();
+        assert!(msg.contains("✓ added us1"), "got: {}", msg);
+        assert_eq!(shell.project.components[0].kind, "ultrasonic");
     }
 
     #[test]

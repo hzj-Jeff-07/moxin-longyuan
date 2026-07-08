@@ -10,7 +10,9 @@
  *   {"event":"adc","t_us":NUM,"channel":N,"value":0..1023}
  *   {"event":"exit","state":N}
  * 标准输入: 行命令通道(非阻塞轮询,主循环内处理,避免多线程碰 simavr)
- *   adc <ch> <value>     ch 0..7,value 0..1023 → 注入 ADC IRQ
+ *   adc <ch> <value>       ch 0..7,value 0..1023 → 注入 ADC IRQ
+ *   sr04 <TP> <TB> <EP> <EB>  声明超声波 trigger/echo 引脚(port 字母 + bit)
+ *   dist <cm>              设定超声波距离 2..400cm(默认 50)
  *   未识别的行忽略(串口 RX 注入未实现,与旧版行为一致)
  *
  * 设计:本进程链接 libsimavr.a (GPL-3.0+),与 moxin Rust 主进程完全分离,
@@ -27,6 +29,7 @@
 
 #include "sim_avr.h"
 #include "sim_hex.h"
+#include "sim_cycle_timers.h"
 #include "avr_ioport.h"
 #include "avr_adc.h"
 #include "avr_uart.h"
@@ -58,6 +61,42 @@ static size_t json_escape(const char *src, char *dst, size_t dst_cap) {
     return out;
 }
 
+/* ---- HC-SR04 超声波(sr04/dist 命令声明后生效) ----
+ * trigger 引脚收到 ≥2us 高脉冲 → 约 200us 后 echo 拉高,
+ * 高电平持续 58us × 距离(cm),模拟真实模块的回波时序。 */
+static avr_irq_t *g_sr04_echo_irq = NULL;
+static char g_sr04_trig_port = 0;
+static uint8_t g_sr04_trig_bit = 0;
+static uint32_t g_sr04_dist_cm = 50;
+static uint64_t g_sr04_trig_rise_cycle = 0;
+
+static avr_cycle_count_t sr04_echo_high_cb(avr_t *avr, avr_cycle_count_t when, void *param) {
+    (void)avr; (void)when; (void)param;
+    if (g_sr04_echo_irq) avr_raise_irq(g_sr04_echo_irq, 1);
+    return 0; /* 单次,不重排 */
+}
+
+static avr_cycle_count_t sr04_echo_low_cb(avr_t *avr, avr_cycle_count_t when, void *param) {
+    (void)avr; (void)when; (void)param;
+    if (g_sr04_echo_irq) avr_raise_irq(g_sr04_echo_irq, 0);
+    return 0;
+}
+
+static void sr04_on_trigger_edge(uint32_t value) {
+    if (value) {
+        g_sr04_trig_rise_cycle = g_avr->cycle;
+        return;
+    }
+    if (!g_sr04_trig_rise_cycle) return;
+    uint64_t pulse_us = (uint64_t)((double)(g_avr->cycle - g_sr04_trig_rise_cycle)
+                                   * 1e6 / (double)g_avr->frequency);
+    g_sr04_trig_rise_cycle = 0;
+    if (pulse_us < 2) return; /* 毛刺,真模块要求 ≥10us,这里放宽到 2us */
+    avr_cycle_timer_register_usec(g_avr, 200, sr04_echo_high_cb, NULL);
+    avr_cycle_timer_register_usec(g_avr, 200 + 58ULL * g_sr04_dist_cm,
+                                  sr04_echo_low_cb, NULL);
+}
+
 static void pin_change_cb(struct avr_irq_t *irq, uint32_t value, void *param) {
     char port = (char)(intptr_t)param;
     uint8_t bit = (uint8_t)irq->irq;
@@ -65,6 +104,9 @@ static void pin_change_cb(struct avr_irq_t *irq, uint32_t value, void *param) {
     printf("{\"event\":\"pin\",\"t_us\":%llu,\"port\":\"%c\",\"bit\":%u,\"value\":%u}\n",
            (unsigned long long)t_us, port, bit, value);
     fflush(stdout);
+    if (g_sr04_echo_irq && port == g_sr04_trig_port && bit == g_sr04_trig_bit) {
+        sr04_on_trigger_edge(value);
+    }
 }
 
 static void log_event(const char *json) {
@@ -112,6 +154,8 @@ static size_t g_cmd_len = 0;
 
 static void process_cmd_line(const char *line) {
     int ch, value;
+    char tp, ep;
+    int tb, eb, cm;
     if (sscanf(line, "adc %d %d", &ch, &value) == 2) {
         if (ch < 0 || ch > 7) return;
         if (value < 0) value = 0;
@@ -123,6 +167,25 @@ static void process_cmd_line(const char *line) {
         printf("{\"event\":\"adc\",\"t_us\":%llu,\"channel\":%d,\"value\":%d}\n",
                (unsigned long long)sim_time_us(), ch, value);
         fflush(stdout);
+        return;
+    }
+    if (sscanf(line, "sr04 %c %d %c %d", &tp, &tb, &ep, &eb) == 4) {
+        if ((tp != 'B' && tp != 'C' && tp != 'D') ||
+            (ep != 'B' && ep != 'C' && ep != 'D') ||
+            tb < 0 || tb > 7 || eb < 0 || eb > 7) {
+            return;
+        }
+        g_sr04_trig_port = tp;
+        g_sr04_trig_bit = (uint8_t)tb;
+        g_sr04_echo_irq =
+            avr_io_getirq(g_avr, AVR_IOCTL_IOPORT_GETIRQ(ep), eb);
+        return;
+    }
+    if (sscanf(line, "dist %d", &cm) == 1) {
+        if (cm < 2) cm = 2;
+        if (cm > 400) cm = 400;
+        g_sr04_dist_cm = (uint32_t)cm;
+        return;
     }
     /* 未识别的行:忽略(TUI 可能把串口字符写进 stdin,保持旧版"空读"行为) */
 }
@@ -232,7 +295,7 @@ int main(int argc, char **argv) {
         if (fl >= 0) fcntl(STDIN_FILENO, F_SETFL, fl | O_NONBLOCK);
     }
 
-    log_event("{\"event\":\"hello\",\"protocol\":\"1\",\"capabilities\":[\"adc\",\"serial\"]}");
+    log_event("{\"event\":\"hello\",\"protocol\":\"1\",\"capabilities\":[\"adc\",\"serial\",\"sr04\"]}");
 
     {
         char buf[128];

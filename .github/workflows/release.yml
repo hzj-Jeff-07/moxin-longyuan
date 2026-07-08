@@ -89,6 +89,14 @@ jobs:
           ../../target/release/moxin build
           ../../target/release/moxin assert --serial-contains "hello" --within 5s
 
+      # v0.6.0 起:验证 HC-SR04 echo 回波调度(bridge sr04/dist 命令 + cycle timer)
+      # 未注入时 bridge 默认 50cm → 固件 pulseIn 应读出 cm=50 上下
+      - name: Real-sim verify (ultrasonic-radar, SR04 echo timing)
+        working-directory: examples/ultrasonic-radar
+        run: |
+          ../../target/release/moxin build
+          ../../target/release/moxin assert --serial-contains "cm=" --within 5s
+
   # 三平台构建二进制
   build:
     name: Build ${{ matrix.target }}

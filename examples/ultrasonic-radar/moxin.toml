@@ -1,0 +1,19 @@
+[project]
+name = "ultrasonic-radar"
+board = "arduino-uno"
+version = "0.2"
+
+[[component]]
+id = "us1"
+type = "ultrasonic"
+
+[[wire]]
+from = "board.D7"
+to = "us1.trig"
+
+[[wire]]
+from = "board.D8"
+to = "us1.echo"
+
+[code]
+src = "src/main.ino"

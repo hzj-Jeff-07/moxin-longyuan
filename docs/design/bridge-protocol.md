@@ -18,14 +18,31 @@ Unknown event types are silently ignored by the Rust side.
 ```
 adc <channel> <value>
 ```
-- channel: 0..7 (Uno exposes ADC0..ADC5 = A0..A5)
+- channel: 0..7 (Uno exposes ADC0..ADC5 = A0..A5; Nano adds 6/7 = A6/A7)
 - value: 0..1023 (10-bit raw; clamped). Bridge converts to mV against
   AVCC=5000mV and raises the simavr ADC IRQ, then echoes an `adc` event.
+
+### sr04 (v0.6.0)
+```
+sr04 <trig_port> <trig_bit> <echo_port> <echo_bit>
+```
+- ports: B/C/D, bits 0..7. Declares the HC-SR04 wiring; sent automatically
+  by moxin right after spawn based on the project's `ultrasonic` component
+  wires. After configuration, a >=2us high pulse on the trigger pin
+  schedules an echo pulse via simavr cycle timers: high after ~200us,
+  low after another 58us x distance_cm (the real module's formula).
+
+### dist (v0.6.0)
+```
+dist <cm>
+```
+- 2..400 (clamped). Sets the simulated obstacle distance; default 50.
+  No echo event — moxin records the value locally for rendering.
 
 ## Events
 
 ### hello (protocol ≥1, AVR bridge)
-{"event":"hello","protocol":"1","capabilities":["adc","serial"]}
+{"event":"hello","protocol":"1","capabilities":["adc","serial","sr04"]}
 Emitted once, before `ready`. Rust side stores capabilities;
 `RunningSim::set_adc` refuses when "adc" is absent (old bridge → clear error
 instead of a silently dropped command).
