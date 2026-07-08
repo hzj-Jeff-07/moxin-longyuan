@@ -1,0 +1,23 @@
+[project]
+name = "rgb-rainbow"
+board = "arduino-uno"
+version = "0.2"
+
+[[component]]
+id = "rgb1"
+type = "rgb_led"
+
+[[wire]]
+from = "board.D9"
+to = "rgb1.r"
+
+[[wire]]
+from = "board.D10"
+to = "rgb1.g"
+
+[[wire]]
+from = "board.D11"
+to = "rgb1.b"
+
+[code]
+src = "src/main.ino"

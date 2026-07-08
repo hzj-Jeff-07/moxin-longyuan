@@ -19,11 +19,14 @@ pub mod util;
 mod breadboard;
 mod button;
 mod buzzer;
+mod dc_motor;
 mod dupont;
 mod led;
 mod photoresistor;
 mod potentiometer;
 mod resistor;
+mod rgb_led;
+mod servo;
 mod seven_segment;
 
 /// 元件类型定义 trait。一个实现 = 一种元件类型(led / button / ...)。
@@ -120,6 +123,9 @@ impl Registry {
         r.register(Arc::new(buzzer::Buzzer));
         r.register(Arc::new(potentiometer::Potentiometer));
         r.register(Arc::new(photoresistor::Photoresistor));
+        r.register(Arc::new(rgb_led::RgbLed));
+        r.register(Arc::new(servo::Servo));
+        r.register(Arc::new(dc_motor::DcMotor));
         r.register(Arc::new(seven_segment::SevenSegment));
         r.register(Arc::new(breadboard::Breadboard));
         r.register(Arc::new(dupont::Dupont));

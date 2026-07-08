@@ -1,0 +1,50 @@
+# RGB LED · components/rgb_led.toml
+# Phase 3 批次 A 第 2 件(v0.6.0)
+# 型号：5mm 共阴 RGB LED
+
+[component_type]
+id = "rgb_led"
+display_name = "RGB LED (common cathode)"
+category = "output"
+description = "共阴三色 LED，r/g/b 三个阳极分别接 PWM 引脚调色，阴极接地"
+schema_version = "1.0"
+
+[[pin]]
+name = "r"
+aliases = ["red", "1"]
+electrical = "pwm_in"
+direction = "in"
+required = true
+
+[[pin]]
+name = "g"
+aliases = ["green", "2"]
+electrical = "pwm_in"
+direction = "in"
+required = true
+
+[[pin]]
+name = "b"
+aliases = ["blue", "3"]
+electrical = "pwm_in"
+direction = "in"
+required = true
+
+[[pin]]
+name = "cathode"
+aliases = ["c", "gnd", "4"]
+electrical = "gnd"
+direction = "in"
+required = true
+
+# --- 运行时状态 ---
+
+[[state_field]]
+name = "color_hex"
+type = "string"
+default = "#000000"
+description = "三通道 duty 混色结果（#RRGGBB）"
+
+# --- 备注 ---
+# 通道接 PWM 引脚(Uno D3/5/6/9/10/11)时取 duty 0-255；
+# 接普通数字引脚时按电平折算 0/255。

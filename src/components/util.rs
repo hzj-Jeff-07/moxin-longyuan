@@ -1,5 +1,6 @@
 use crate::board::PinRef;
 use crate::boards::BoardSpec;
+use crate::project::Project;
 use crate::sim::{LedLevel, PwmSample, RunState};
 use ratatui::style::Color;
 
@@ -73,6 +74,45 @@ pub fn format_freq(freq_hz: u32) -> String {
         format!("{:.1}kHz", freq_hz as f64 / 1000.0)
     } else {
         format!("{}Hz", freq_hz)
+    }
+}
+
+/// 扫 wires,返回连到 `<comp_id>.<terminal>` 的所有 (terminal, 板侧 pin)。
+/// 多端子元件(RGB LED / 电机 / 七段)用它按端子名取各自的信号。
+pub fn component_terminal_pins(comp_id: &str, project: &Project) -> Vec<(String, PinRef)> {
+    let mut out = Vec::new();
+    for w in &project.wires {
+        let from = PinRef::parse(&w.from).ok();
+        let to = PinRef::parse(&w.to).ok();
+        let (pin, terminal) = match (from, to) {
+            (Some(PinRef::Component { id, terminal }), Some(p))
+                if id == comp_id && !matches!(p, PinRef::Component { .. }) =>
+            {
+                (p, terminal)
+            }
+            (Some(p), Some(PinRef::Component { id, terminal }))
+                if id == comp_id && !matches!(p, PinRef::Component { .. }) =>
+            {
+                (p, terminal)
+            }
+            _ => continue,
+        };
+        out.push((terminal, pin));
+    }
+    out
+}
+
+/// 数字/PWM 混合驱动电平:PWM 引脚上有稳定波形 → duty(0..=255);
+/// 否则按数字电平折算 0 / 255。RGB 调色、电机调速共用。
+pub fn pin_drive_level(pin: &PinRef, state: &RunState, spec: &BoardSpec) -> u8 {
+    if pin_is_pwm_capable(pin, spec) {
+        if let Some(s) = pin_pwm(pin, state) {
+            return s.duty;
+        }
+    }
+    match pin_level(pin, state, spec) {
+        LedLevel::On => 255,
+        LedLevel::Off => 0,
     }
 }
 

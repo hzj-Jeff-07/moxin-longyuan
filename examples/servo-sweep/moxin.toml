@@ -1,0 +1,15 @@
+[project]
+name = "servo-sweep"
+board = "arduino-uno"
+version = "0.2"
+
+[[component]]
+id = "sv1"
+type = "servo"
+
+[[wire]]
+from = "board.D9"
+to = "sv1.signal"
+
+[code]
+src = "src/main.ino"

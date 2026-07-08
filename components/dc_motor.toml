@@ -1,0 +1,54 @@
+# 直流电机 · components/dc_motor.toml
+# Phase 3 批次 A 第 4 件(v0.6.0)
+# 型号：TT 马达 + L298N 驱动(按驱动板端子建模)
+
+[component_type]
+id = "dc_motor"
+display_name = "DC Motor (via L298N)"
+category = "output"
+description = "直流电机经 L298N:ena 调速(PWM),in1/in2 定向;同电平为停"
+schema_version = "1.0"
+
+[[pin]]
+name = "ena"
+aliases = ["en", "speed", "1"]
+electrical = "pwm_in"
+direction = "in"
+required = false
+
+[[pin]]
+name = "in1"
+aliases = ["a", "2"]
+electrical = "digital_in"
+direction = "in"
+required = true
+
+[[pin]]
+name = "in2"
+aliases = ["b", "3"]
+electrical = "digital_in"
+direction = "in"
+required = true
+
+[[pin]]
+name = "gnd"
+aliases = ["g", "4"]
+electrical = "gnd"
+direction = "in"
+required = true
+
+# --- 运行时状态 ---
+
+[[state_field]]
+name = "speed_pct"
+type = "int"
+range = [0, 100]
+default = 0
+description = "转速百分比(ena duty 派生;ena 未接线视为常使能)"
+
+[[state_field]]
+name = "direction"
+type = "enum"
+values = ["forward", "reverse", "stop"]
+default = "stop"
+description = "in1/in2 电平组合派生的转向"
