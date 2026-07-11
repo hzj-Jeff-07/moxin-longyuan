@@ -39,10 +39,28 @@ dist <cm>
 - 2..400 (clamped). Sets the simulated obstacle distance; default 50.
   No echo event — moxin records the value locally for rendering.
 
+### dht (v0.7.0)
+```
+dht <port> <bit>
+```
+- Declares the DHT11 data pin (B/C/D, 0..7); sent automatically by moxin
+  based on the project's `dht11` component wires. Once configured, a
+  host-driven low of >=500us followed by release triggers the DHT11
+  response waveform (edge player over cycle timers): 80us low + 80us high
+  ack, then 40 bits (50us low lead + 27us/70us high = 0/1), byte order
+  hum / 0 / temp / 0 / checksum.
+
+### env (v0.7.0)
+```
+env <temp_c> <hum_pct>
+```
+- temp 0..50, hum 20..90 (clamped; DHT11 range). Default 25/60.
+  Echoed back as a `dht` event.
+
 ## Events
 
 ### hello (protocol ≥1, AVR bridge)
-{"event":"hello","protocol":"1","capabilities":["adc","serial","sr04"]}
+{"event":"hello","protocol":"1","capabilities":["adc","serial","sr04","dht"]}
 Emitted once, before `ready`. Rust side stores capabilities;
 `RunningSim::set_adc` refuses when "adc" is absent (old bridge → clear error
 instead of a silently dropped command).
@@ -71,6 +89,11 @@ Emitted once at startup.
 {"event":"adc","t_us":<us>,"channel":<0..7>,"value":<0..1023>}
 Echo of a processed stdin `adc` command. Rust side updates
 `RunState.adc_values[channel]`.
+
+### dht (v0.7.0, AVR bridge)
+{"event":"dht","t_us":<us>,"temp":<0..50>,"hum":<20..90>}
+Echo of a processed stdin `env` command. Rust side updates
+`RunState.dht_env`.
 
 ### button
 {"event":"button","t_us":<us>,"pressed":true|false}

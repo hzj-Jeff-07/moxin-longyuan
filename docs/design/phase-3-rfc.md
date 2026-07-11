@@ -113,6 +113,49 @@ RGB LED 三端子、电机 ena/in1/in2 都走 **wire 端子名**(`rgb1.r`),
 不升 SCHEMA_VERSION**。批次 B 的 DHT11/LCD 需要注入型"环境量",届时评估
 `params: BTreeMap` + SCHEMA 0.3(迁移提示照 CLAUDE.md 规矩写)。
 
+## 三·B、批次 B 技术细则(v0.7.0,2026-07-08 补)
+
+实施顺序按"bridge 风险递增":DHT11 → STM32F103 → 红外 → LCD1602 → OLED。
+
+### 7. DHT11 `dht11`(第一件,p0)
+
+**bridge**(复用 protocol 1 stdin 通道 + cycle timer,与 sr04 同模式):
+
+- `dht <P> <B>`:声明 data 引脚(moxin 按 wires 自动下发,同 sr04)
+- `env <temp_c> <hum_pct>`:注入环境温湿度(0..50°C / 20..90%,DHT11 量程)
+- 时序状态机:host 拉低 ≥500us 后释放 → bridge 用一个自重排 cycle timer
+  按 DHT11 时序回放 84 个边沿:30us 后 80us 低 + 80us 高应答,然后 40 bit
+  (每 bit 50us 低 + 27us/70us 高 = 0/1),字节序 hum/0/temp/0/checksum
+- 回放期间忽略 data 引脚上自己注入的边沿(防状态机自触发)
+- capabilities 加 `"dht"`
+
+**Rust**:`configure_dhts`(同 configure_ultrasonics 模式)、
+`RunState::dht_env: Option<(u8 temp, u8 hum)>`、shell `env <temp> <hum>` 命令、
+`dht11` 元件(🌡 温湿度显示)、example `dht11-weather`(固件手写 bit-bang 读,
+不依赖 DHT 库)、CI verify 加 `assert --serial-contains "temp="` 关卡。
+
+**✅ 已完成(2026-07-08)**:上述全部落地 + configure_peripherals 统一配置入口;
+cargo test 177 / 元件 14 种 / examples 17。真机 e2e 靠 CI 新增的 dht11 关卡。
+
+### 8. STM32F103(蓝色 Pill)
+
+- QEMU 主线无 F103/BluePill 机型;最近的 F1 是 `stm32vldiscovery`(F100RB)。
+  **决策待定**:以 F100 机型代跑 F103 固件(主频/外设有差异,须在文档如实标注),
+  或降级为"不做,书面豁免"。启动前需用户拍板,不默认开工。
+
+### 9. 红外 NEC `ir_receiver`
+
+- bridge:`ir <hex32>` 命令 → NEC 时序(9ms 引导 + 4.5ms 空 + 32 bit)回放到
+  声明的引脚,复用 DHT 的边沿回放器(抽成通用 `edge_player`)
+- 元件渲染最近收到的码;example:遥控器控制 LED
+
+### 10/11. LCD1602 / OLED SSD1306(I2C,最重)
+
+- 需要挂 simavr TWI:bridge 实现 PCF8574(LCD)/SSD1306(OLED)从机模型,
+  按 avr_twi.h 的 TWI_IRQ 协议应答;LCD 输出 16×2 字符 `lcd` 事件,
+  OLED 输出 128×64 帧缓冲(增量行事件),moxin 侧 TUI 开专用面板渲染
+- 工作量大(预估各 3-5 天),放批次 B 收尾;动工前单独细化
+
 ## 四、测试与质量线
 
 - 每个新元件:构造/渲染(有信号、无信号、接错引脚)≥3 单测

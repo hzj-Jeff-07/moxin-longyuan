@@ -34,7 +34,7 @@ pub fn cmd_assert(
 
     // 全部断言模式都需要让 simulator 跑起来观测事件，与 Run 命令相同的启动姿势。
     let mut sim = board.spawn_sim(&root, &artifact, false)?;
-    crate::sim::configure_ultrasonics(&mut sim, &project, spec)?;
+    crate::sim::configure_peripherals(&mut sim, &project, spec)?;
 
     let result = match mode {
         AssertMode::PinEq { pin_name, expected, after_d } => {

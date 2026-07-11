@@ -1,0 +1,51 @@
+# DHT11 温湿度 · components/dht11.toml
+# Phase 3 批次 B 第 1 件(v0.7.0)
+
+[component_type]
+id = "dht11"
+display_name = "DHT11 (temp/humidity)"
+category = "input"
+description = "单总线温湿度传感器:host 拉低 data 后,模块按 DHT11 时序回 40bit(hum/temp/checksum)"
+schema_version = "1.0"
+
+[[pin]]
+name = "data"
+aliases = ["out", "signal", "2"]
+electrical = "one_wire"
+direction = "out"
+required = true
+
+[[pin]]
+name = "vcc"
+aliases = ["v", "1"]
+electrical = "power"
+direction = "in"
+required = true
+
+[[pin]]
+name = "gnd"
+aliases = ["g", "4"]
+electrical = "gnd"
+direction = "in"
+required = true
+
+# --- 运行时状态 ---
+
+[[state_field]]
+name = "temp_c"
+type = "int"
+range = [0, 50]
+default = 25
+description = "注入温度(env 命令),DHT11 量程 0-50°C 整数精度"
+
+[[state_field]]
+name = "hum_pct"
+type = "int"
+range = [20, 90]
+default = 60
+description = "注入湿度(env 命令),DHT11 量程 20-90% 整数精度"
+
+# --- 备注 ---
+# data 引脚映射由 moxin 启动时经 stdin `dht <P> <B>` 自动下发;
+# 环境用 REPL `env <temp> <hum>` 调节。bridge 用 cycle timer 按
+# 真实 DHT11 时序回放 84 个边沿(80/80us 应答 + 40bit 27/70us)。

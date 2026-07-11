@@ -19,12 +19,14 @@
   - 5 外设(photoresistor / rgb_led / servo / dc_motor / ultrasonic)+ Arduino Nano 全部落地
   - HC-SR04 bridge 改动经用户确认;真机 e2e 靠 CI verify 的 ultrasonic 新关卡
   - 剩:tag `v0.6.0`(需用户授权;v0.5.0 tag 也还没打)
-- **Phase 3 批次 B(v0.7.0)**:❌ 未启动(DHT11 / LCD1602 / OLED / STM32F103 / 红外,需 TWI/单总线 bridge 状态机)
+- **Phase 3 批次 B(v0.7.0)**:🚧 进行中(RFC 三·B 节细则已补,2026-07-08)
+  - B7 DHT11 ✅(bridge 边沿回放器 + dht/env 命令;CI dht11 关卡)
+  - 剩:红外(复用边沿回放器)/ LCD1602 / OLED(需 TWI)/ STM32F103(机型待用户拍板,QEMU 无真 F103)
 - `docs/planning/`(7day 计划)已与实际历史脱节,仅作参考,进度以 git log + RFC 勾选为准
 
 ✅ 当前范围:
 - Arduino Uno / Arduino Nano (simavr,同 bridge) + STM32F405 (qemu netduinoplus2)
-- 元件 13 种(led / rgb_led / button / resistor / buzzer / potentiometer / photoresistor / servo / dc_motor / ultrasonic / seven_segment / breadboard / dupont),经 `src/components/` 注册式接入
+- 元件 14 种(led / rgb_led / button / resistor / buzzer / potentiometer / photoresistor / servo / dc_motor / ultrasonic / dht11 / seven_segment / breadboard / dupont),经 `src/components/` 注册式接入
 - 新增元件 = `src/components/<name>.rs` 实现 `ComponentDef` + `Registry::builtin()` 注册一行,**不改 render/shell/inspector 主路径**
 
 ❌ 不做(明确禁区):
@@ -94,7 +96,7 @@ src/
     gd32vf103.rs    占位:build/spawn_sim 必须 bail "not yet implemented"
 bridge/             C 源码,Claude 不主动改
 components/         元件 schema TOML(与 src/components/ 对齐)
-examples/           ≤18 个(Phase 3 起上调,当前 16),新增需含 README + moxin.toml
+examples/           ≤18 个(Phase 3 起上调,当前 17),新增需含 README + moxin.toml
 docs/design/        设计文档(bridge-protocol、cli-vision、phase-2-full-rfc 是权威)
 ```
 

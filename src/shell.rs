@@ -126,6 +126,7 @@ impl Shell {
             "run" => self.cmd_run_sim(),
             "adc" => self.cmd_adc(&rest),
             "dist" => self.cmd_dist(&rest),
+            "env" => self.cmd_env(&rest),
             "stop" => self.cmd_stop(),
             "sleep" => self.cmd_sleep(&rest),
             "help" | "?" => Ok(help_text()),
@@ -253,7 +254,7 @@ impl Shell {
             bail!("artifact not found at {} — run `build` first", artifact.display());
         }
         let mut sim = self.board.spawn_sim(&self.root, &artifact, false)?;
-        crate::sim::configure_ultrasonics(&mut sim, &self.project, self.board.spec())?;
+        crate::sim::configure_peripherals(&mut sim, &self.project, self.board.spec())?;
         self.running = Some(sim);
         Ok(format!("✓ simulator started ({})", self.board.board_name()))
     }
@@ -301,6 +302,24 @@ impl Shell {
         Ok(format!("✓ dist = {}cm", cm.clamp(2, 400)))
     }
 
+    /// `env <temp> <hum>` — 设定 DHT11 温湿度(0..50°C / 20..90%)。
+    fn cmd_env(&mut self, args: &[&str]) -> Result<String> {
+        let (Some(t_arg), Some(h_arg)) = (args.first(), args.get(1)) else {
+            bail!("usage: env <temp 0..50> <hum 20..90>");
+        };
+        let temp: u8 = t_arg
+            .parse()
+            .map_err(|_| anyhow!("invalid temperature: {} (expect 0..50)", t_arg))?;
+        let hum: u8 = h_arg
+            .parse()
+            .map_err(|_| anyhow!("invalid humidity: {} (expect 20..90)", h_arg))?;
+        let Some(sim) = self.running.as_mut() else {
+            bail!("simulator not running — try `run`");
+        };
+        sim.set_env(temp, hum)?;
+        Ok(format!("✓ env = {}°C {}%", temp.min(50), hum.clamp(20, 90)))
+    }
+
     fn cmd_stop(&mut self) -> Result<String> {
         if let Some(sim) = self.running.take() {
             sim.stop();
@@ -336,6 +355,7 @@ fn help_text() -> String {
         rgb                          RGB LED (wire r/g/b terminals)
         servo                        SG90 servo (50Hz PWM)
         motor                        DC motor via L298N (ena/in1/in2)
+        dht11                        DHT11 temp/humidity sensor
         7seg                         seven-segment display
         breadboard                   breadboard
         dupont [color]               dupont jumper wire
@@ -347,6 +367,7 @@ fn help_text() -> String {
   run                              start simavr simulator
   adc <A0..A5|ch> <0..1023>        inject ADC value (potentiometer knob)
   dist <2..400>                    set ultrasonic distance in cm
+  env <temp> <hum>                 set DHT11 temperature/humidity
   stop                             stop simulator
   exit | quit                      leave shell",
     )
