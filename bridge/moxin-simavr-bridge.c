@@ -42,6 +42,12 @@ static uint64_t sim_time_us(void) {
     return (uint64_t)((double)g_avr->cycle * 1e6 / (double)g_avr->frequency);
 }
 
+/* us → cycle 数。不用库里的 avr_usec_to_cycles:Ubuntu 打包的 libsimavr
+ * 不导出该符号(CI run #10 链接失败),自己算一样准。 */
+static avr_cycle_count_t usec_to_cycles(uint32_t usec) {
+    return (avr_cycle_count_t)g_avr->frequency * usec / 1000000ULL;
+}
+
 /* JSON 字符串 escape,与 bridge-stm32.c 同款:\, ", \r, \n, \t 转义,
  * 其它控制字符丢弃。 */
 static size_t json_escape(const char *src, char *dst, size_t dst_cap) {
@@ -90,7 +96,8 @@ static avr_cycle_count_t edge_player_cb(avr_t *avr, avr_cycle_count_t when, void
         g_edges.playing = 0;
         return 0;
     }
-    return g_edges.t0 + avr_usec_to_cycles(avr, g_edges.offset_us[g_edges.idx]);
+    (void)avr;
+    return g_edges.t0 + usec_to_cycles(g_edges.offset_us[g_edges.idx]);
 }
 
 static void edge_player_start(avr_irq_t *irq) {
