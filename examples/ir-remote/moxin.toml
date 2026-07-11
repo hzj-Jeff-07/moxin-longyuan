@@ -1,0 +1,24 @@
+[project]
+name = "ir-remote"
+board = "arduino-uno"
+version = "0.2"
+
+[[component]]
+id = "ir1"
+type = "ir_receiver"
+
+[[component]]
+id = "led1"
+type = "led"
+color = "blue"
+
+[[wire]]
+from = "board.D2"
+to = "ir1.out"
+
+[[wire]]
+from = "board.D13"
+to = "led1.a"
+
+[code]
+src = "src/main.ino"

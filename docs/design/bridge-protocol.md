@@ -57,10 +57,29 @@ env <temp_c> <hum_pct>
 - temp 0..50, hum 20..90 (clamped; DHT11 range). Default 25/60.
   Echoed back as a `dht` event.
 
+### ir (v0.7.0)
+```
+ir <port> <bit>
+```
+- Declares the IR receiver output pin (auto-sent by moxin from
+  `ir_receiver` component wires). 500ms after configuration the bridge
+  plays one self-test frame (code 20DF10EF) so first-run and CI e2e see
+  a decode without manual injection.
+
+### irtx (v0.7.0)
+```
+irtx <hex32>
+```
+- Plays one NEC frame on the declared pin: 9ms leader low + 4.5ms space,
+  32 bits (560us burst + 560us/1690us space = 0/1), 560us stop burst.
+  Bytes transmitted high-byte-first, bits within a byte LSB-first (NEC
+  convention). Echoed back as an `ir` event. Dropped if the edge player
+  is busy (e.g. mid-DHT-read).
+
 ## Events
 
 ### hello (protocol ≥1, AVR bridge)
-{"event":"hello","protocol":"1","capabilities":["adc","serial","sr04","dht"]}
+{"event":"hello","protocol":"1","capabilities":["adc","serial","sr04","dht","ir"]}
 Emitted once, before `ready`. Rust side stores capabilities;
 `RunningSim::set_adc` refuses when "adc" is absent (old bridge → clear error
 instead of a silently dropped command).
@@ -94,6 +113,11 @@ Echo of a processed stdin `adc` command. Rust side updates
 {"event":"dht","t_us":<us>,"temp":<0..50>,"hum":<20..90>}
 Echo of a processed stdin `env` command. Rust side updates
 `RunState.dht_env`.
+
+### ir (v0.7.0, AVR bridge)
+{"event":"ir","t_us":<us>,"code":<u32>}
+Emitted when an NEC frame is played (irtx command or self-test frame).
+Rust side updates `RunState.ir_code`.
 
 ### button
 {"event":"button","t_us":<us>,"pressed":true|false}

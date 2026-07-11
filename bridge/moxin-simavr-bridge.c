@@ -15,6 +15,8 @@
  *   dist <cm>              设定超声波距离 2..400cm(默认 50)
  *   dht <P> <B>            声明 DHT11 data 引脚
  *   env <temp> <hum>       设定温湿度 0..50°C / 20..90%(默认 25/60)
+ *   ir <P> <B>             声明红外接收头 out 引脚(500ms 后自发一帧自检码)
+ *   irtx <hex32>           发送一帧 NEC 红外码(如 20DF10EF)
  *   未识别的行忽略(串口 RX 注入未实现,与旧版行为一致)
  *
  * 设计:本进程链接 libsimavr.a (GPL-3.0+),与 moxin Rust 主进程完全分离,
@@ -156,6 +158,48 @@ static void dht_on_pin_edge(uint32_t value) {
     if (low_us >= 500) dht_start_response(); /* 真模块要 ≥18ms,放宽给快节奏固件 */
 }
 
+/* ---- 红外 NEC 接收头(ir/irtx 命令声明后生效) ----
+ * VS1838 类接收头输出:空闲高,载波段拉低。NEC 帧 = 9ms 引导低 + 4.5ms 高 +
+ * 32 bit(560us 低 + 560/1690us 高 = 0/1)+ 尾 560us 低。
+ * 字节按 code 的高字节先发,字节内 LSB 先发(NEC 惯例)。
+ * 声明引脚后 500ms 自发一帧自检码,便于 CI e2e 与首次体验。 */
+static avr_irq_t *g_ir_irq = NULL;
+static const uint32_t IR_DEMO_CODE = 0x20DF10EF;
+
+static void ir_play(uint32_t code) {
+    if (!g_ir_irq || g_edges.playing) return; /* 回放器忙(如 DHT 在读)则丢帧 */
+    int n = 0;
+    uint32_t t = 100;
+    g_edges.offset_us[n] = t; g_edges.level[n] = 0; n++; /* 9ms 引导 */
+    t += 9000;
+    g_edges.offset_us[n] = t; g_edges.level[n] = 1; n++; /* 4.5ms 空 */
+    t += 4500;
+    for (int byte = 3; byte >= 0; byte--) {
+        uint8_t b = (uint8_t)((code >> (byte * 8)) & 0xFF);
+        for (int i = 0; i < 8; i++) {
+            int one = (b >> i) & 1;
+            g_edges.offset_us[n] = t; g_edges.level[n] = 0; n++; /* 560us 载波 */
+            t += 560;
+            g_edges.offset_us[n] = t; g_edges.level[n] = 1; n++; /* 空:560=0 / 1690=1 */
+            t += one ? 1690 : 560;
+        }
+    }
+    g_edges.offset_us[n] = t; g_edges.level[n] = 0; n++;         /* 尾载波 */
+    t += 560;
+    g_edges.offset_us[n] = t; g_edges.level[n] = 1; n++;         /* 释放 */
+    g_edges.count = n;
+    edge_player_start(g_ir_irq);
+    printf("{\"event\":\"ir\",\"t_us\":%llu,\"code\":%u}\n",
+           (unsigned long long)sim_time_us(), code);
+    fflush(stdout);
+}
+
+static avr_cycle_count_t ir_demo_cb(avr_t *avr, avr_cycle_count_t when, void *param) {
+    (void)avr; (void)when; (void)param;
+    ir_play(IR_DEMO_CODE);
+    return 0;
+}
+
 /* ---- HC-SR04 超声波(sr04/dist 命令声明后生效) ----
  * trigger 引脚收到 ≥2us 高脉冲 → 约 200us 后 echo 拉高,
  * 高电平持续 58us × 距离(cm),模拟真实模块的回波时序。 */
@@ -284,6 +328,23 @@ static void process_cmd_line(const char *line) {
         if (cm > 400) cm = 400;
         g_sr04_dist_cm = (uint32_t)cm;
         return;
+    }
+    {
+        unsigned int hex;
+        char ip;
+        int ib;
+        /* irtx 要先于 ir 匹配("ir %c" 会吃掉 irtx 的 't') */
+        if (sscanf(line, "irtx %x", &hex) == 1) {
+            ir_play((uint32_t)hex);
+            return;
+        }
+        if (sscanf(line, "ir %c %d", &ip, &ib) == 2) {
+            if ((ip != 'B' && ip != 'C' && ip != 'D') || ib < 0 || ib > 7) return;
+            g_ir_irq = avr_io_getirq(g_avr, AVR_IOCTL_IOPORT_GETIRQ(ip), ib);
+            /* 500ms 后自发一帧自检码 */
+            avr_cycle_timer_register_usec(g_avr, 500000, ir_demo_cb, NULL);
+            return;
+        }
     }
     {
         char dp;
@@ -416,7 +477,7 @@ int main(int argc, char **argv) {
         if (fl >= 0) fcntl(STDIN_FILENO, F_SETFL, fl | O_NONBLOCK);
     }
 
-    log_event("{\"event\":\"hello\",\"protocol\":\"1\",\"capabilities\":[\"adc\",\"serial\",\"sr04\",\"dht\"]}");
+    log_event("{\"event\":\"hello\",\"protocol\":\"1\",\"capabilities\":[\"adc\",\"serial\",\"sr04\",\"dht\",\"ir\"]}");
 
     {
         char buf[128];

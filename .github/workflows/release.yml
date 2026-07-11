@@ -105,6 +105,13 @@ jobs:
           ../../target/release/moxin build
           ../../target/release/moxin assert --serial-contains "temp=" --within 5s
 
+      # v0.7.0 起:验证红外 NEC 时序(bridge ir/irtx 命令,声明后 500ms 自检帧)
+      - name: Real-sim verify (ir-remote, NEC timing)
+        working-directory: examples/ir-remote
+        run: |
+          ../../target/release/moxin build
+          ../../target/release/moxin assert --serial-contains "code=20DF10EF" --within 5s
+
   # 三平台构建二进制
   build:
     name: Build ${{ matrix.target }}

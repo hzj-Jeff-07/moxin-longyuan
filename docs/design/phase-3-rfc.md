@@ -137,17 +137,19 @@ RGB LED 三端子、电机 ena/in1/in2 都走 **wire 端子名**(`rgb1.r`),
 **✅ 已完成(2026-07-08)**:上述全部落地 + configure_peripherals 统一配置入口;
 cargo test 177 / 元件 14 种 / examples 17。真机 e2e 靠 CI 新增的 dht11 关卡。
 
-### 8. STM32F103(蓝色 Pill)
+### 8. STM32F103(蓝色 Pill)— ❌ 书面豁免(2026-07-11 决定)
 
-- QEMU 主线无 F103/BluePill 机型;最近的 F1 是 `stm32vldiscovery`(F100RB)。
-  **决策待定**:以 F100 机型代跑 F103 固件(主频/外设有差异,须在文档如实标注),
-  或降级为"不做,书面豁免"。启动前需用户拍板,不默认开工。
+- QEMU 主线无 F103/BluePill 机型;最近的 F1 是 `stm32vldiscovery`(F100RB,
+  24MHz 主频、无 USB、定时器布局不同)。以 F100 代跑 F103 固件属于"假机型",
+  与本项目"如实标注"的原则冲突 —— 按 ESP32/Pico 同理由豁免(用户委托决策)。
+- 若上游 QEMU 日后合入 BluePill 机型,重新评估。
 
-### 9. 红外 NEC `ir_receiver`
+### 9. 红外 NEC `ir_receiver` — ✅ 完成(2026-07-11)
 
-- bridge:`ir <hex32>` 命令 → NEC 时序(9ms 引导 + 4.5ms 空 + 32 bit)回放到
-  声明的引脚,复用 DHT 的边沿回放器(抽成通用 `edge_player`)
-- 元件渲染最近收到的码;example:遥控器控制 LED
+- bridge:`ir <P> <B>` 声明引脚(声明后 500ms 自发一帧自检码 20DF10EF,
+  给 CI e2e 和首次体验用)+ `irtx <hex32>` 发帧,复用 DHT 的边沿回放器
+- 元件渲染最近一帧码;shell `ir <hex>` 命令;example `ir-remote`
+  (手写 NEC 解码 + 电源键翻转 LED);CI 加 `code=20DF10EF` 关卡
 
 ### 10/11. LCD1602 / OLED SSD1306(I2C,最重)
 
