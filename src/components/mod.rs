@@ -20,6 +20,7 @@ mod breadboard;
 mod button;
 mod buzzer;
 mod dc_motor;
+mod dht11;
 mod dupont;
 mod led;
 mod photoresistor;
@@ -128,6 +129,7 @@ impl Registry {
         r.register(Arc::new(servo::Servo));
         r.register(Arc::new(dc_motor::DcMotor));
         r.register(Arc::new(ultrasonic::Ultrasonic));
+        r.register(Arc::new(dht11::Dht11));
         r.register(Arc::new(seven_segment::SevenSegment));
         r.register(Arc::new(breadboard::Breadboard));
         r.register(Arc::new(dupont::Dupont));

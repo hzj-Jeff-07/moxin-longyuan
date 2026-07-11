@@ -103,6 +103,8 @@ pub struct RunState {
     /// 超声波注入距离(cm)。`configure_ultrasonics` 时置 bridge 默认值 50,
     /// `set_distance` 后跟随注入值;没有超声波元件时保持 None。
     pub ultrasonic_cm: Option<u16>,
+    /// DHT11 注入环境 (temp°C, hum%)。configure 时置 bridge 默认 (25, 60)。
+    pub dht_env: Option<(u8, u8)>,
     /// bridge `hello` 事件宣告的能力(如 "adc" / "serial");老 bridge 不发 hello → 空。
     pub bridge_capabilities: Vec<String>,
     /// bridge 协议版本,来自 `hello`;老 bridge → None。
@@ -135,6 +137,7 @@ impl Default for RunState {
             pwm: HashMap::new(),
             adc_values: HashMap::new(),
             ultrasonic_cm: None,
+            dht_env: None,
             bridge_capabilities: Vec::new(),
             bridge_protocol: None,
             pwm_trackers: HashMap::new(),
@@ -233,6 +236,8 @@ enum BridgeEvent {
     Serial { t_us: u64, line: String },
     #[serde(rename = "adc")]
     Adc { t_us: u64, channel: u8, value: u16 },
+    #[serde(rename = "dht")]
+    Dht { t_us: u64, temp: u8, hum: u8 },
     #[serde(rename = "exit")]
     Exit { state: i32 },
     #[serde(rename = "button")]
@@ -300,6 +305,42 @@ impl RunningSim {
         Ok(())
     }
 
+    /// 向 bridge 声明 DHT11 data 引脚。同 configure_sr04,老 bridge 忽略。
+    pub fn configure_dht(&mut self, data: (char, u8)) -> Result<()> {
+        let Some(stdin) = self.stdin.as_mut() else {
+            bail!("bridge stdin not available — cannot configure dht");
+        };
+        writeln!(stdin, "dht {} {}", data.0, data.1)
+            .and_then(|_| stdin.flush())
+            .map_err(|e| anyhow!("write dht command to bridge: {}", e))?;
+        if let Ok(mut s) = self.state.lock() {
+            s.dht_env = Some((25, 60)); // bridge 侧默认环境
+        }
+        Ok(())
+    }
+
+    /// 注入 DHT11 环境:温度 0..=50°C,湿度 20..=90%(超界截断)。
+    pub fn set_env(&mut self, temp: u8, hum: u8) -> Result<()> {
+        if let Ok(s) = self.state.lock() {
+            if !s.bridge_capabilities.iter().any(|c| c == "dht") {
+                bail!(
+                    "bridge does not support dht env injection (capabilities: {:?}) — rebuild bridge/ (make -C bridge)",
+                    s.bridge_capabilities
+                );
+            }
+        }
+        let temp = temp.min(50);
+        let hum = hum.clamp(20, 90);
+        let Some(stdin) = self.stdin.as_mut() else {
+            bail!("bridge stdin not available — cannot inject env");
+        };
+        writeln!(stdin, "env {} {}", temp, hum)
+            .and_then(|_| stdin.flush())
+            .map_err(|e| anyhow!("write env command to bridge: {}", e))?;
+        // dht_env 由 bridge 回显的 dht 事件更新,这里不重复写
+        Ok(())
+    }
+
     /// 注入超声波距离(2..=400cm,超界截断)。
     pub fn set_distance(&mut self, cm: u16) -> Result<()> {
         if let Ok(s) = self.state.lock() {
@@ -325,10 +366,51 @@ impl RunningSim {
     }
 }
 
+/// spawn_sim 之后调用一次的外设自动配置总入口
+/// (shell run / run --output json / assert 三个入口共用)。
+pub fn configure_peripherals(
+    sim: &mut RunningSim,
+    project: &crate::project::Project,
+    spec: &crate::boards::BoardSpec,
+) -> Result<()> {
+    configure_ultrasonics(sim, project, spec)?;
+    configure_dhts(sim, project, spec)?;
+    Ok(())
+}
+
+/// 扫 project 里的 DHT11 元件,把 data 引脚经 stdin 下发给 bridge。
+fn configure_dhts(
+    sim: &mut RunningSim,
+    project: &crate::project::Project,
+    _spec: &crate::boards::BoardSpec,
+) -> Result<()> {
+    for comp in project.components.iter().filter(|c| c.kind == "dht11") {
+        for (terminal, pin) in
+            crate::components::util::component_terminal_pins(&comp.id, project)
+        {
+            if !matches!(terminal.as_str(), "data" | "out" | "signal") {
+                continue;
+            }
+            let port_bit = match pin {
+                crate::board::PinRef::BoardDigital(n) => {
+                    RunState::arduino_digital_to_port_bit(n)
+                }
+                crate::board::PinRef::BoardAnalog(n) => {
+                    RunState::arduino_analog_to_port_bit(n)
+                }
+                _ => None,
+            };
+            if let Some(d) = port_bit {
+                sim.configure_dht(d)?;
+            }
+        }
+    }
+    Ok(())
+}
+
 /// 扫 project 里的超声波元件,把 trigger/echo 引脚经 stdin 下发给 bridge。
-/// 在 spawn_sim 之后调用一次(shell run / run --output json / assert 三个入口)。
 /// 没有超声波元件时是 no-op;bridge 老版本会忽略该命令。
-pub fn configure_ultrasonics(
+fn configure_ultrasonics(
     sim: &mut RunningSim,
     project: &crate::project::Project,
     _spec: &crate::boards::BoardSpec,
@@ -470,6 +552,10 @@ fn apply_event(
         BridgeEvent::Adc { t_us, channel, value } => {
             s.last_event_t_us = t_us;
             s.adc_values.insert(channel, value.min(1023));
+        }
+        BridgeEvent::Dht { t_us, temp, hum } => {
+            s.last_event_t_us = t_us;
+            s.dht_env = Some((temp, hum));
         }
         BridgeEvent::Exit { state: exit_state } => {
             s.bridge_exited = true;
@@ -850,6 +936,19 @@ mod tests {
         assert!(s.ready);
         assert!(s.bridge_protocol.is_none());
         assert!(s.bridge_capabilities.is_empty());
+    }
+
+    #[test]
+    fn apply_event_dht_updates_env() {
+        let state = Arc::new(Mutex::new(RunState::default()));
+        let ev: BridgeEvent = serde_json::from_str(
+            r#"{"event":"dht","t_us":42,"temp":31,"hum":75}"#,
+        )
+        .expect("dht event should deserialize from real bridge JSON");
+        apply_event(&state, ev, &|_, _| false);
+        let s = state.lock().unwrap();
+        assert_eq!(s.dht_env, Some((31, 75)));
+        assert_eq!(s.last_event_t_us, 42);
     }
 
     #[test]

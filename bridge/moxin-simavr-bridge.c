@@ -13,6 +13,8 @@
  *   adc <ch> <value>       ch 0..7,value 0..1023 → 注入 ADC IRQ
  *   sr04 <TP> <TB> <EP> <EB>  声明超声波 trigger/echo 引脚(port 字母 + bit)
  *   dist <cm>              设定超声波距离 2..400cm(默认 50)
+ *   dht <P> <B>            声明 DHT11 data 引脚
+ *   env <temp> <hum>       设定温湿度 0..50°C / 20..90%(默认 25/60)
  *   未识别的行忽略(串口 RX 注入未实现,与旧版行为一致)
  *
  * 设计:本进程链接 libsimavr.a (GPL-3.0+),与 moxin Rust 主进程完全分离,
@@ -40,6 +42,12 @@ static uint64_t sim_time_us(void) {
     return (uint64_t)((double)g_avr->cycle * 1e6 / (double)g_avr->frequency);
 }
 
+/* us → cycle 数。不用库里的 avr_usec_to_cycles:Ubuntu 打包的 libsimavr
+ * 不导出该符号(CI run #10 链接失败),自己算一样准。 */
+static avr_cycle_count_t usec_to_cycles(uint32_t usec) {
+    return (avr_cycle_count_t)g_avr->frequency * usec / 1000000ULL;
+}
+
 /* JSON 字符串 escape,与 bridge-stm32.c 同款:\, ", \r, \n, \t 转义,
  * 其它控制字符丢弃。 */
 static size_t json_escape(const char *src, char *dst, size_t dst_cap) {
@@ -59,6 +67,93 @@ static size_t json_escape(const char *src, char *dst, size_t dst_cap) {
     }
     dst[out] = '\0';
     return out;
+}
+
+/* ---- 边沿回放器 ----
+ * DHT11 应答(以及将来的红外 NEC)都是确定性波形:预排一张
+ * (offset_us, level) 时间表,用一个自重排 cycle timer 逐个注入。
+ * 单实例:同一时刻只回放一个波形(DHT 读取间隔秒级,足够)。 */
+#define EDGE_MAX 96
+static struct {
+    avr_irq_t *irq;
+    uint32_t offset_us[EDGE_MAX];
+    uint8_t level[EDGE_MAX];
+    int count;
+    int idx;
+    avr_cycle_count_t t0;
+    int playing;
+} g_edges;
+
+static avr_cycle_count_t edge_player_cb(avr_t *avr, avr_cycle_count_t when, void *param) {
+    (void)when; (void)param;
+    if (!g_edges.playing || g_edges.idx >= g_edges.count) {
+        g_edges.playing = 0;
+        return 0;
+    }
+    avr_raise_irq(g_edges.irq, g_edges.level[g_edges.idx]);
+    g_edges.idx++;
+    if (g_edges.idx >= g_edges.count) {
+        g_edges.playing = 0;
+        return 0;
+    }
+    (void)avr;
+    return g_edges.t0 + usec_to_cycles(g_edges.offset_us[g_edges.idx]);
+}
+
+static void edge_player_start(avr_irq_t *irq) {
+    if (!irq || g_edges.count == 0) return;
+    g_edges.irq = irq;
+    g_edges.idx = 0;
+    g_edges.playing = 1;
+    g_edges.t0 = g_avr->cycle;
+    avr_cycle_timer_register_usec(g_avr, g_edges.offset_us[0], edge_player_cb, NULL);
+}
+
+/* ---- DHT11 温湿度(dht/env 命令声明后生效) ----
+ * host 拉低 data ≥500us 后释放 → 按 DHT11 时序回放:
+ * 30us 后 80us 低 + 80us 高应答,然后 40 bit(50us 低 + 27/70us 高 = 0/1),
+ * 字节序 hum / 0 / temp / 0 / checksum,尾部 50us 低后释放。 */
+static avr_irq_t *g_dht_irq = NULL;
+static char g_dht_port = 0;
+static uint8_t g_dht_bit = 0;
+static uint8_t g_dht_temp = 25;
+static uint8_t g_dht_hum = 60;
+static uint64_t g_dht_low_cycle = 0;
+
+static void dht_start_response(void) {
+    uint8_t bytes[5] = { g_dht_hum, 0, g_dht_temp, 0, 0 };
+    bytes[4] = (uint8_t)(bytes[0] + bytes[1] + bytes[2] + bytes[3]);
+    int n = 0;
+    uint32_t t = 30;
+    g_edges.offset_us[n] = t; g_edges.level[n] = 0; n++; /* 应答 80us 低 */
+    t += 80;
+    g_edges.offset_us[n] = t; g_edges.level[n] = 1; n++; /* 应答 80us 高 */
+    t += 80;
+    for (int i = 0; i < 40; i++) {
+        int one = (bytes[i / 8] >> (7 - i % 8)) & 1;
+        g_edges.offset_us[n] = t; g_edges.level[n] = 0; n++; /* bit 前导 50us 低 */
+        t += 50;
+        g_edges.offset_us[n] = t; g_edges.level[n] = 1; n++; /* 高 27us=0 / 70us=1 */
+        t += one ? 70 : 27;
+    }
+    g_edges.offset_us[n] = t; g_edges.level[n] = 0; n++;     /* 尾 50us 低 */
+    t += 50;
+    g_edges.offset_us[n] = t; g_edges.level[n] = 1; n++;     /* 释放 */
+    g_edges.count = n;
+    edge_player_start(g_dht_irq);
+}
+
+static void dht_on_pin_edge(uint32_t value) {
+    if (g_edges.playing) return; /* 回放中的边沿是自己注入的,忽略 */
+    if (value == 0) {
+        g_dht_low_cycle = g_avr->cycle;
+        return;
+    }
+    if (!g_dht_low_cycle) return;
+    uint64_t low_us = (uint64_t)((double)(g_avr->cycle - g_dht_low_cycle)
+                                 * 1e6 / (double)g_avr->frequency);
+    g_dht_low_cycle = 0;
+    if (low_us >= 500) dht_start_response(); /* 真模块要 ≥18ms,放宽给快节奏固件 */
 }
 
 /* ---- HC-SR04 超声波(sr04/dist 命令声明后生效) ----
@@ -106,6 +201,9 @@ static void pin_change_cb(struct avr_irq_t *irq, uint32_t value, void *param) {
     fflush(stdout);
     if (g_sr04_echo_irq && port == g_sr04_trig_port && bit == g_sr04_trig_bit) {
         sr04_on_trigger_edge(value);
+    }
+    if (g_dht_irq && port == g_dht_port && bit == g_dht_bit) {
+        dht_on_pin_edge(value);
     }
 }
 
@@ -186,6 +284,29 @@ static void process_cmd_line(const char *line) {
         if (cm > 400) cm = 400;
         g_sr04_dist_cm = (uint32_t)cm;
         return;
+    }
+    {
+        char dp;
+        int db, tc, hp;
+        if (sscanf(line, "dht %c %d", &dp, &db) == 2) {
+            if ((dp != 'B' && dp != 'C' && dp != 'D') || db < 0 || db > 7) return;
+            g_dht_port = dp;
+            g_dht_bit = (uint8_t)db;
+            g_dht_irq = avr_io_getirq(g_avr, AVR_IOCTL_IOPORT_GETIRQ(dp), db);
+            return;
+        }
+        if (sscanf(line, "env %d %d", &tc, &hp) == 2) {
+            if (tc < 0) tc = 0;
+            if (tc > 50) tc = 50;
+            if (hp < 20) hp = 20;
+            if (hp > 90) hp = 90;
+            g_dht_temp = (uint8_t)tc;
+            g_dht_hum = (uint8_t)hp;
+            printf("{\"event\":\"dht\",\"t_us\":%llu,\"temp\":%d,\"hum\":%d}\n",
+                   (unsigned long long)sim_time_us(), tc, hp);
+            fflush(stdout);
+            return;
+        }
     }
     /* 未识别的行:忽略(TUI 可能把串口字符写进 stdin,保持旧版"空读"行为) */
 }
@@ -295,7 +416,7 @@ int main(int argc, char **argv) {
         if (fl >= 0) fcntl(STDIN_FILENO, F_SETFL, fl | O_NONBLOCK);
     }
 
-    log_event("{\"event\":\"hello\",\"protocol\":\"1\",\"capabilities\":[\"adc\",\"serial\",\"sr04\"]}");
+    log_event("{\"event\":\"hello\",\"protocol\":\"1\",\"capabilities\":[\"adc\",\"serial\",\"sr04\",\"dht\"]}");
 
     {
         char buf[128];

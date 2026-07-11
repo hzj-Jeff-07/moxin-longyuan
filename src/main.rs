@@ -131,7 +131,7 @@ fn main() -> Result<ExitCode> {
             }
             let json_out = output == OutputMode::Json;
             let mut sim = board.spawn_sim(&root, &artifact, json_out)?;
-            sim::configure_ultrasonics(&mut sim, &project, board.spec())?;
+            sim::configure_peripherals(&mut sim, &project, board.spec())?;
             let state_file = root.join("build").join(".moxin-state.json");
             if json_out {
                 // stdout 严格只走 JSON Lines（在 reader 线程里透传），状态提示写 stderr。
