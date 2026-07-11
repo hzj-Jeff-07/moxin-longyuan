@@ -100,6 +100,9 @@ pub struct RunState {
     pub pwm: HashMap<String, PwmSample>,
     /// 每 ADC 通道最新注入值(0..=1023),来自 bridge 的 `adc` 事件回显。
     pub adc_values: HashMap<u8, u16>,
+    /// 超声波注入距离(cm)。`configure_ultrasonics` 时置 bridge 默认值 50,
+    /// `set_distance` 后跟随注入值;没有超声波元件时保持 None。
+    pub ultrasonic_cm: Option<u16>,
     /// bridge `hello` 事件宣告的能力(如 "adc" / "serial");老 bridge 不发 hello → 空。
     pub bridge_capabilities: Vec<String>,
     /// bridge 协议版本,来自 `hello`;老 bridge → None。
@@ -131,6 +134,7 @@ impl Default for RunState {
             pin_states: HashMap::new(),
             pwm: HashMap::new(),
             adc_values: HashMap::new(),
+            ultrasonic_cm: None,
             bridge_capabilities: Vec::new(),
             bridge_protocol: None,
             pwm_trackers: HashMap::new(),
@@ -280,6 +284,81 @@ impl RunningSim {
             .map_err(|e| anyhow!("write adc command to bridge: {}", e))?;
         Ok(())
     }
+
+    /// 向 bridge 声明超声波 trigger/echo 引脚((port, bit) 对)。
+    /// 老 bridge 不认识该命令,写了会被忽略 — 声明本身无副作用,不做能力检查。
+    pub fn configure_sr04(&mut self, trig: (char, u8), echo: (char, u8)) -> Result<()> {
+        let Some(stdin) = self.stdin.as_mut() else {
+            bail!("bridge stdin not available — cannot configure sr04");
+        };
+        writeln!(stdin, "sr04 {} {} {} {}", trig.0, trig.1, echo.0, echo.1)
+            .and_then(|_| stdin.flush())
+            .map_err(|e| anyhow!("write sr04 command to bridge: {}", e))?;
+        if let Ok(mut s) = self.state.lock() {
+            s.ultrasonic_cm = Some(50); // bridge 侧默认距离
+        }
+        Ok(())
+    }
+
+    /// 注入超声波距离(2..=400cm,超界截断)。
+    pub fn set_distance(&mut self, cm: u16) -> Result<()> {
+        if let Ok(s) = self.state.lock() {
+            if !s.bridge_capabilities.iter().any(|c| c == "sr04") {
+                bail!(
+                    "bridge does not support sr04 distance injection (capabilities: {:?}) — rebuild bridge/ (make -C bridge)",
+                    s.bridge_capabilities
+                );
+            }
+        }
+        let cm = cm.clamp(2, 400);
+        let Some(stdin) = self.stdin.as_mut() else {
+            bail!("bridge stdin not available — cannot inject distance");
+        };
+        writeln!(stdin, "dist {}", cm)
+            .and_then(|_| stdin.flush())
+            .map_err(|e| anyhow!("write dist command to bridge: {}", e))?;
+        if let Ok(mut s) = self.state.lock() {
+            s.ultrasonic_cm = Some(cm);
+            s.dirty = true;
+        }
+        Ok(())
+    }
+}
+
+/// 扫 project 里的超声波元件,把 trigger/echo 引脚经 stdin 下发给 bridge。
+/// 在 spawn_sim 之后调用一次(shell run / run --output json / assert 三个入口)。
+/// 没有超声波元件时是 no-op;bridge 老版本会忽略该命令。
+pub fn configure_ultrasonics(
+    sim: &mut RunningSim,
+    project: &crate::project::Project,
+    _spec: &crate::boards::BoardSpec,
+) -> Result<()> {
+    for comp in project.components.iter().filter(|c| c.kind == "ultrasonic") {
+        let mut trig: Option<(char, u8)> = None;
+        let mut echo: Option<(char, u8)> = None;
+        for (terminal, pin) in
+            crate::components::util::component_terminal_pins(&comp.id, project)
+        {
+            let port_bit = match pin {
+                crate::board::PinRef::BoardDigital(n) => {
+                    RunState::arduino_digital_to_port_bit(n)
+                }
+                crate::board::PinRef::BoardAnalog(n) => {
+                    RunState::arduino_analog_to_port_bit(n)
+                }
+                _ => None,
+            };
+            match terminal.as_str() {
+                "trig" | "trigger" => trig = port_bit,
+                "echo" => echo = port_bit,
+                _ => {}
+            }
+        }
+        if let (Some(t), Some(e)) = (trig, echo) {
+            sim.configure_sr04(t, e)?;
+        }
+    }
+    Ok(())
 }
 
 type IsD13Fn = Box<dyn Fn(&str, u32) -> bool + Send + 'static>;

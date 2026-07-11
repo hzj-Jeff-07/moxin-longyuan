@@ -13,17 +13,23 @@
   - Step 3 PWM 追踪 ✅(纯 Rust 侧 PwmTracker,含 pwm-fade example,2026-07-07)
   - Step 2 ADC 真仿真 ✅(bridge stdin 命令通道 + IRQ 注入,经用户确认,2026-07-07;顺带修复 AVR serial 事件缺失)
   - Step 4 examples ✅(adc-potentiometer + pwm-fade)/ Step 5 文档收尾 ✅(README + 版本号 0.5.0,2026-07-07)
-  - 剩:PR 合并 main + tag `v0.5.0` + push tag(**均需用户授权**)+ bridge 真机验证(CI verify 关卡)
+  - PR #3 已合并 main(2026-07-07);CI verify 真机关卡全绿(bridge 编译 + blink/serial e2e)
+  - 剩:tag `v0.5.0` + push tag(本环境推不了 tag,**需用户本地执行**)
+- **Phase 3 批次 A(v0.6.0)**:✅ 代码完成(2026-07-07),权威计划见 `docs/design/phase-3-rfc.md`
+  - 5 外设(photoresistor / rgb_led / servo / dc_motor / ultrasonic)+ Arduino Nano 全部落地
+  - HC-SR04 bridge 改动经用户确认;真机 e2e 靠 CI verify 的 ultrasonic 新关卡
+  - 剩:tag `v0.6.0`(需用户授权;v0.5.0 tag 也还没打)
+- **Phase 3 批次 B(v0.7.0)**:❌ 未启动(DHT11 / LCD1602 / OLED / STM32F103 / 红外,需 TWI/单总线 bridge 状态机)
 - `docs/planning/`(7day 计划)已与实际历史脱节,仅作参考,进度以 git log + RFC 勾选为准
 
 ✅ 当前范围:
-- Arduino Uno (simavr) + STM32F405 (qemu netduinoplus2) 双板
-- 元件 9 种(led / button / resistor / buzzer / potentiometer / seven_segment / breadboard / dupont 等),经 `src/components/` 注册式接入
+- Arduino Uno / Arduino Nano (simavr,同 bridge) + STM32F405 (qemu netduinoplus2)
+- 元件 13 种(led / rgb_led / button / resistor / buzzer / potentiometer / photoresistor / servo / dc_motor / ultrasonic / seven_segment / breadboard / dupont),经 `src/components/` 注册式接入
 - 新增元件 = `src/components/<name>.rs` 实现 `ComponentDef` + `Registry::builtin()` 注册一行,**不改 render/shell/inspector 主路径**
 
 ❌ 不做(明确禁区):
 - 不写 AVR / ARM / RISC-V CPU 内核
-- 不加 ESP32 / RP2040 / Arduino Nano(没现成 bridge)
+- 不加 ESP32 / RP2040(主线 QEMU/simavr 无现成机型;Nano 已于 Phase 3 解禁,同 ATmega328P 复用 simavr bridge)
 - 不加 I2C / SPI / OLED / LCD1602 / DHT11(留 Phase 3 / v0.6.0)
 - 不做 GUI / Tauri / Web 前端
 - 不实现 MCP server(留 v3)
@@ -88,7 +94,7 @@ src/
     gd32vf103.rs    占位:build/spawn_sim 必须 bail "not yet implemented"
 bridge/             C 源码,Claude 不主动改
 components/         元件 schema TOML(与 src/components/ 对齐)
-examples/           ≤12 个(当前 12,已到上限;Phase 3 加例子前先调此规则),新增需含 README + moxin.toml
+examples/           ≤18 个(Phase 3 起上调,当前 16),新增需含 README + moxin.toml
 docs/design/        设计文档(bridge-protocol、cli-vision、phase-2-full-rfc 是权威)
 ```
 
@@ -118,7 +124,7 @@ bridge 子进程从 stdout 每行输出一条 JSON:
 ```toml
 [project]
 name = "blink"
-board = "arduino-uno"   # arduino-uno | stm32 | gd32vf103
+board = "arduino-uno"   # arduino-uno | arduino-nano | stm32 | gd32vf103
 version = "0.2"
 
 [code]

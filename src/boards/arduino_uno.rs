@@ -77,6 +77,17 @@ impl super::BoardImpl for ArduinoUno {
     fn source_template(&self) -> &'static str { BLINK_INO_TEMPLATE }
 
     fn build(&self, root: &Path) -> Result<(PathBuf, String)> {
+        avr_build(root, FQBN)
+    }
+
+    fn spawn_sim(&self, root: &Path, artifact: &Path, json_out: bool) -> Result<RunningSim> {
+        avr_spawn_sim(root, artifact, self.spec(), json_out)
+    }
+}
+
+/// arduino-cli 编译 .ino → build/<name>.hex。Uno / Nano 共用(仅 FQBN 不同)。
+pub(crate) fn avr_build(root: &Path, fqbn: &str) -> Result<(PathBuf, String)> {
+    {
         let project = Project::load(&root.join("moxin.toml"))?;
         let src_rel = project.code.as_ref().map(|c| c.src.clone())
             .unwrap_or_else(|| "src/main.ino".to_string());
@@ -98,7 +109,7 @@ impl super::BoardImpl for ArduinoUno {
 
         let out_dir = sketch_dir.join("out");
         let out = Command::new("arduino-cli")
-            .arg("compile").arg("--fqbn").arg(FQBN)
+            .arg("compile").arg("--fqbn").arg(fqbn)
             .arg("--output-dir").arg(&out_dir).arg(&sketch_dir)
             .output().context("invoke arduino-cli compile")?;
         if !out.status.success() {
@@ -123,18 +134,24 @@ impl super::BoardImpl for ArduinoUno {
         msg.push_str(&format!("✓ arduino-cli compile OK → build/{} ({} bytes)", target_name, prog_bytes));
         Ok((target_hex, msg))
     }
+}
 
-    fn spawn_sim(&self, root: &Path, artifact: &Path, json_out: bool) -> Result<RunningSim> {
-        let bridge = find_bridge_avr()?;
-        if !bridge.exists() {
-            bail!("simavr bridge not found at {} — set $MOXIN_BRIDGE or `make` in bridge/", bridge.display());
-        }
-        if !artifact.exists() {
-            bail!("hex not found: {} — run `build` first", artifact.display());
-        }
-        let child = spawn_bridge_child(&bridge, &[artifact, Path::new("atmega328p"), Path::new("16000000")], root)?;
-        spawn_with_state(child, self.voltage_mv(), self.spec().make_is_d13(), json_out)
+/// 启动 simavr bridge。Uno / Nano 共用(同 ATmega328P/16MHz,spec 决定电压与 D13 映射)。
+pub(crate) fn avr_spawn_sim(
+    root: &Path,
+    artifact: &Path,
+    spec: &'static BoardSpec,
+    json_out: bool,
+) -> Result<RunningSim> {
+    let bridge = find_bridge_avr()?;
+    if !bridge.exists() {
+        bail!("simavr bridge not found at {} — set $MOXIN_BRIDGE or `make` in bridge/", bridge.display());
     }
+    if !artifact.exists() {
+        bail!("hex not found: {} — run `build` first", artifact.display());
+    }
+    let child = spawn_bridge_child(&bridge, &[artifact, Path::new("atmega328p"), Path::new("16000000")], root)?;
+    spawn_with_state(child, spec.voltage_mv, spec.make_is_d13(), json_out)
 }
 
 fn ihex_program_size(path: &Path) -> Result<u64> {

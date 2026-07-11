@@ -1,0 +1,42 @@
+# 光敏电阻 · components/photoresistor.toml
+# Phase 3 批次 A 第 1 件(v0.6.0)
+# 型号：GL5528 光敏电阻(LDR)
+
+[component_type]
+id = "photoresistor"
+display_name = "Photoresistor (LDR)"
+category = "input"
+description = "光敏电阻，光照越强阻值越低；与分压电阻组合输出模拟电压给 MCU ADC"
+schema_version = "1.0"
+
+# 两脚元件：一脚经分压输出模拟电压，另一脚接地
+[[pin]]
+name = "out"
+aliases = ["1", "a", "signal"]
+electrical = "analog_out"
+direction = "out"
+required = true
+
+[[pin]]
+name = "gnd"
+aliases = ["2", "b"]
+electrical = "gnd"
+direction = "in"
+required = true
+
+# --- 运行时状态 ---
+
+[[state_field]]
+name = "adc_value"
+type = "int"
+range = [0, 1023]
+default = 0
+description = "10-bit ADC 等效读数（环境光注入派生，值越大光越强）"
+
+# --- 用户交互 ---
+# TUI 模式下 Tab 聚焦后 ←/→ 调环境光（走 set_adc 注入），
+# REPL 模式用 `adc A<n> <0..1023>`。
+
+# --- 备注 ---
+# 仿真层不建模真实阻值曲线：环境光直接以 0-1023 的 ADC 读数注入，
+# analogRead() 返回注入值。

@@ -1,0 +1,51 @@
+# 超声波传感器 · components/ultrasonic.toml
+# Phase 3 批次 A 第 5 件(v0.6.0)
+# 型号：HC-SR04
+
+[component_type]
+id = "ultrasonic"
+display_name = "Ultrasonic (HC-SR04)"
+category = "input"
+description = "超声波测距:trig 收 ≥10us 高脉冲后,echo 输出与距离成正比的高脉冲(58us/cm)"
+schema_version = "1.0"
+
+[[pin]]
+name = "trig"
+aliases = ["trigger", "t", "1"]
+electrical = "digital_in"
+direction = "in"
+required = true
+
+[[pin]]
+name = "echo"
+aliases = ["e", "2"]
+electrical = "digital_out"
+direction = "out"
+required = true
+
+[[pin]]
+name = "vcc"
+aliases = ["v", "3"]
+electrical = "power"
+direction = "in"
+required = true
+
+[[pin]]
+name = "gnd"
+aliases = ["g", "4"]
+electrical = "gnd"
+direction = "in"
+required = true
+
+# --- 运行时状态 ---
+
+[[state_field]]
+name = "distance_cm"
+type = "int"
+range = [2, 400]
+default = 50
+description = "注入的模拟距离(dist 命令);bridge 按 58us/cm 生成 echo 脉宽"
+
+# --- 备注 ---
+# 引脚映射由 moxin 在仿真启动时经 stdin `sr04 <TP> <TB> <EP> <EB>` 自动下发;
+# 距离用 REPL `dist <cm>` 调节。

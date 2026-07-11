@@ -1,0 +1,44 @@
+# 舵机 · components/servo.toml
+# Phase 3 批次 A 第 3 件(v0.6.0)
+# 型号：SG90 9g 舵机
+
+[component_type]
+id = "servo"
+display_name = "Servo (SG90)"
+category = "output"
+description = "9g 舵机，50Hz PWM 脉宽 500-2500us 线性映射 0-180°"
+schema_version = "1.0"
+
+[[pin]]
+name = "signal"
+aliases = ["s", "sig", "1"]
+electrical = "pwm_in"
+direction = "in"
+required = true
+
+[[pin]]
+name = "vcc"
+aliases = ["v", "2"]
+electrical = "power"
+direction = "in"
+required = true
+
+[[pin]]
+name = "gnd"
+aliases = ["g", "3"]
+electrical = "gnd"
+direction = "in"
+required = true
+
+# --- 运行时状态 ---
+
+[[state_field]]
+name = "angle_deg"
+type = "float"
+range = [0.0, 180.0]
+default = 90.0
+description = "当前舵角，由 PWM 脉宽推导"
+
+# --- 备注 ---
+# 仿真层从 PwmSample 推导:pulse_us = duty/255 × period_us,
+# 500-2500us → 0-180°;频率不在 40-100Hz 窗口内不识别为舵机信号。
