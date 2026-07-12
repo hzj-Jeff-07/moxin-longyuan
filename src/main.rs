@@ -74,6 +74,9 @@ enum Cmd {
         within: Option<String>,
         #[arg(long = "serial-contains")]
         serial_contains: Option<String>,
+        /// 断言前向固件串口 RX 注入这段文本(测输入→输出闭环)
+        #[arg(long)]
+        send: Option<String>,
     },
 }
 
@@ -116,8 +119,8 @@ fn main() -> Result<ExitCode> {
             cmd_status::cmd_status(&pin)?;
             Ok(ExitCode::SUCCESS)
         }
-        Cmd::Assert { pin, eq, after, toggles, within, serial_contains } => {
-            cmd_assert::cmd_assert(pin, eq, after, toggles, within, serial_contains)
+        Cmd::Assert { pin, eq, after, toggles, within, serial_contains, send } => {
+            cmd_assert::cmd_assert(pin, eq, after, toggles, within, serial_contains, send)
         }
         Cmd::Run { output } => {
             let cwd = std::env::current_dir()?;

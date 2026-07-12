@@ -252,6 +252,7 @@ fn run_blink_e2e() {
 - ADC 值来自注入(`adc` 命令 / TUI 旋钮),不是电路仿真;没注入过时 potentiometer 回退静态 `max_ohms` 显示
 - PWM 是 Rust 侧边沿推导(非 bridge 真 hook):duty 到 0/255 时无边沿,采样过期回退 ON/OFF,属预期;STM32 `pwm_pins` 为空,PWM 显示仅 Uno 生效
 - 老 bridge 二进制(protocol 前)不发 hello/serial/adc:`set_adc` 会报错提示重编 bridge;Uno serial 需要新 bridge 才有
+- 串口 RX 注入(`send` / TUI 按键 / `assert --send`)走 bridge `serial` 命令,按 9600 波特逐字节注入(v0.7.0);老 bridge 无 `serialrx` 能力会被 `send_serial` 明确报错
 - Windows 上 simavr 无现成包(WSL / MSYS2 自编译),`moxin doctor` 提示已如实说明;考虑在 release 附预编译 bridge
 - `.moxin-state.json` 只在 `run --output json` 模式落盘;TUI/REPL 模式下 `moxin status` 读到的是上一次 json run 的快照
 

@@ -78,6 +78,17 @@ lcd <hex_addr>
   P4-7=data; single-nibble init handled) and emits throttled `lcd`
   events. Read transfers are not ACKed (backpack is write-only here).
 
+### serial (v0.7.0)
+```
+serial <text>
+```
+- Injects `<text>` into the firmware's UART RX one byte at a time, paced
+  at ~9600 baud (simavr's UDR holds one byte, so a same-tick burst would
+  be overwritten). The payload is the rest of the line — spaces kept,
+  no trailing newline added. Firmware `Serial.read()` receives the bytes.
+  Sent by `moxin send <text>`, `assert --send <text>`, and TUI keystrokes
+  when the input bar is empty.
+
 ### oled (v0.7.0)
 ```
 oled <hex_addr>
@@ -104,7 +115,7 @@ irtx <hex32>
 ## Events
 
 ### hello (protocol ≥1, AVR bridge)
-{"event":"hello","protocol":"1","capabilities":["adc","serial","sr04","dht","ir","lcd","oled"]}
+{"event":"hello","protocol":"1","capabilities":["adc","serial","serialrx","sr04","dht","ir","lcd","oled"]}
 Emitted once, before `ready`. Rust side stores capabilities;
 `RunningSim::set_adc` refuses when "adc" is absent (old bridge → clear error
 instead of a silently dropped command).
@@ -168,10 +179,10 @@ Rust side updates RunState.button_pressed on receipt.
 - STM32 bridge uses "GPIO" as port placeholder; real port names (PA/PB/PC) are not yet used.
 - STM32 firmware must emit "PIN<n>=<0|1>\n" on USART2 for GPIO events to be detected.
 - AVR: simavr instruments GPIO directly, no firmware convention needed.
-- Serial RX injection is still NOT implemented: tui.rs writes single bytes to
-  bridge stdin; on the AVR bridge those bytes land in the command-line buffer
-  and are discarded as unrecognized (same net effect as the old empty-read
-  behavior). STM32 bridge passes qemu stdin to /dev/null.
+- Serial RX injection (AVR bridge, v0.7.0): the `serial <text>` stdin command
+  feeds bytes into the firmware UART RX (see above). TUI keystrokes now route
+  through it, so interactive examples (serial-echo, led-control) actually work.
+  STM32 bridge still passes qemu stdin to /dev/null (no RX injection there).
 - PWM has no bridge event: duty/freq are derived Rust-side from `pin` edge
   timing (see phase-2-full RFC Step 3).
 

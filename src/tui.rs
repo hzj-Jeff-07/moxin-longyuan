@@ -558,15 +558,14 @@ pub fn run(shell: &mut crate::shell::Shell) -> Result<()> {
                         if ctrl && (c == 'c' || c == 'C') {
                             input.clear();
                         } else if !ctrl && !alt {
-                            // If simulator running and input bar is empty, inject char as serial RX
-                            // and do NOT echo into the input buffer.
-                            let injected = input.buffer.is_empty() && shell.running.as_mut()
-                                .and_then(|sim| sim.stdin.as_mut())
-                                .map(|stdin| {
-                                    use std::io::Write;
-                                    stdin.write_all(&[c as u8]).is_ok()
-                                })
-                                .unwrap_or(false);
+                            // 仿真运行 + 输入条为空时,按键作为串口 RX 注入固件
+                            // (走 bridge `serial` 命令,老版本的裸字节写 stdin 会被当命令行丢弃)。
+                            let injected = input.buffer.is_empty()
+                                && shell
+                                    .running
+                                    .as_mut()
+                                    .map(|sim| sim.send_serial(&c.to_string()).is_ok())
+                                    .unwrap_or(false);
                             if !injected {
                                 input.insert_char(c);
                             }

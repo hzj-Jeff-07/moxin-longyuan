@@ -128,6 +128,7 @@ impl Shell {
             "dist" => self.cmd_dist(&rest),
             "env" => self.cmd_env(&rest),
             "ir" => self.cmd_ir(&rest),
+            "send" => self.cmd_send(line),
             "stop" => self.cmd_stop(),
             "sleep" => self.cmd_sleep(&rest),
             "help" | "?" => Ok(help_text()),
@@ -336,6 +337,21 @@ impl Shell {
         Ok(format!("✓ ir {:08X}", code))
     }
 
+    /// `send <text>` — 把 <text> 注入固件串口 RX(整行剩余部分,保留空格)。
+    /// 例:`send hello` → 固件 Serial.read() 依次读到 h e l l o。
+    fn cmd_send(&mut self, line: &str) -> Result<String> {
+        // 取 "send " 之后的原始文本(保留空格,不做 token 化)
+        let text = line.strip_prefix("send").map(|s| s.trim_start()).unwrap_or("");
+        if text.is_empty() {
+            bail!("usage: send <text>");
+        }
+        let Some(sim) = self.running.as_mut() else {
+            bail!("simulator not running — try `run`");
+        };
+        sim.send_serial(text)?;
+        Ok(format!("✓ sent {} byte(s)", text.len()))
+    }
+
     fn cmd_stop(&mut self) -> Result<String> {
         if let Some(sim) = self.running.take() {
             sim.stop();
@@ -386,6 +402,7 @@ fn help_text() -> String {
   dist <2..400>                    set ultrasonic distance in cm
   env <temp> <hum>                 set DHT11 temperature/humidity
   ir <hex32>                       send NEC infrared frame
+  send <text>                      inject text into firmware serial RX
   stop                             stop simulator
   exit | quit                      leave shell",
     )
@@ -547,6 +564,24 @@ mod tests {
         let mut shell = make_shell(&tmp);
         assert!(shell.dispatch("dist abc").is_err());
         assert!(shell.dispatch("dist").is_err());
+    }
+
+    #[test]
+    fn send_without_running_sim_is_error() {
+        let tmp = TempDir::new().expect("tempdir");
+        let mut shell = make_shell(&tmp);
+        let res = shell.dispatch("send hello");
+        assert!(res.is_err());
+        assert!(res.unwrap_err().to_string().contains("not running"));
+    }
+
+    #[test]
+    fn send_without_text_is_usage_error() {
+        let tmp = TempDir::new().expect("tempdir");
+        let mut shell = make_shell(&tmp);
+        let res = shell.dispatch("send");
+        assert!(res.is_err());
+        assert!(res.unwrap_err().to_string().contains("usage"));
     }
 
     #[test]

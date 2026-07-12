@@ -19,7 +19,8 @@
  *   irtx <hex32>           发送一帧 NEC 红外码(如 20DF10EF)
  *   lcd <hex_addr>         启用 LCD1602 I2C 从机(PCF8574 背包,常用 27)
  *   oled <hex_addr>        启用 OLED SSD1306 I2C 从机(常用 3C)
- *   未识别的行忽略(串口 RX 注入未实现,与旧版行为一致)
+ *   serial <text>          注入串口 RX(按 9600 波特逐字节喂给固件 Serial.read)
+ *   未识别的行忽略
  *
  * 设计:本进程链接 libsimavr.a (GPL-3.0+),与 moxin Rust 主进程完全分离,
  * 仅通过 stdio 通信,规避 GPL 传染。
@@ -526,6 +527,35 @@ static void uart_out_cb(struct avr_irq_t *irq, uint32_t value, void *param) {
     }
 }
 
+/* ---- 串口 RX 注入(serial 命令) ----
+ * simavr UDR 一次只放一个字节,一次性灌会被覆盖丢失;按 9600 波特(~1ms/字节)
+ * 用 cycle timer 逐字节 raise UART_IRQ_INPUT,保证 RX ISR 每字节都能触发。 */
+static avr_irq_t *g_uart_in = NULL;
+static char g_serial_tx[256];
+static int g_serial_tx_len = 0;
+static int g_serial_tx_idx = 0;
+
+static avr_cycle_count_t serial_tx_cb(avr_t *avr, avr_cycle_count_t when, void *param) {
+    (void)when; (void)param;
+    if (g_serial_tx_idx >= g_serial_tx_len) return 0;
+    if (g_uart_in) avr_raise_irq(g_uart_in, (uint8_t)g_serial_tx[g_serial_tx_idx]);
+    g_serial_tx_idx++;
+    if (g_serial_tx_idx >= g_serial_tx_len) return 0;
+    return avr->cycle + usec_to_cycles(1050); /* ~9600 baud */
+}
+
+static void serial_inject(const char *text) {
+    if (!g_uart_in) return;
+    int n = 0;
+    while (text[n] && n < (int)sizeof(g_serial_tx)) {
+        g_serial_tx[n] = text[n];
+        n++;
+    }
+    g_serial_tx_len = n;
+    g_serial_tx_idx = 0;
+    if (n > 0) avr_cycle_timer_register_usec(g_avr, 100, serial_tx_cb, NULL);
+}
+
 /* ---- stdin 命令通道 ----
  * 非阻塞轮询,在主 avr_run 循环的间隙处理;不开线程,
  * 因为 simavr 不是线程安全的,跨线程 avr_raise_irq 会与 avr_run 竞态
@@ -537,6 +567,11 @@ static void process_cmd_line(const char *line) {
     int ch, value;
     char tp, ep;
     int tb, eb, cm;
+    /* serial <text>:注入串口 RX(整行剩余部分,保留空格);先于其它匹配 */
+    if (strncmp(line, "serial ", 7) == 0) {
+        serial_inject(line + 7);
+        return;
+    }
     if (sscanf(line, "adc %d %d", &ch, &value) == 2) {
         if (ch < 0 || ch > 7) return;
         if (value < 0) value = 0;
@@ -715,6 +750,7 @@ int main(int argc, char **argv) {
         if (uart_out) {
             avr_irq_register_notify(uart_out, uart_out_cb, NULL);
         }
+        g_uart_in = avr_io_getirq(avr, AVR_IOCTL_UART_GETIRQ('0'), UART_IRQ_INPUT);
         uint32_t flags = 0;
         if (avr_ioctl(avr, AVR_IOCTL_UART_GET_FLAGS('0'), &flags) == 0) {
             flags &= ~AVR_UART_FLAG_STDIO;
@@ -740,7 +776,7 @@ int main(int argc, char **argv) {
         if (fl >= 0) fcntl(STDIN_FILENO, F_SETFL, fl | O_NONBLOCK);
     }
 
-    log_event("{\"event\":\"hello\",\"protocol\":\"1\",\"capabilities\":[\"adc\",\"serial\",\"sr04\",\"dht\",\"ir\",\"lcd\",\"oled\"]}");
+    log_event("{\"event\":\"hello\",\"protocol\":\"1\",\"capabilities\":[\"adc\",\"serial\",\"serialrx\",\"sr04\",\"dht\",\"ir\",\"lcd\",\"oled\"]}");
 
     {
         char buf[128];

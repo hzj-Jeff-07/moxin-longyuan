@@ -16,18 +16,24 @@ GND ──── LED          cathode
 |------|------|
 | 任意字符 | 回显 `echo: <字符>`，D13 LED 翻转一次 |
 
-Phase 1 的 simavr bridge 串口注入是单字符的（没有行缓冲），所以一次输入
-一个字符即可看到回显。
-
 ## 运行
 
 ```bash
 cd examples/serial-echo
 moxin build           # arduino-cli 编译 src/main.ino
-moxin shell           # 进 shell
-moxin> run            # 启动 simavr，进 TUI
-# 在 Serial Monitor 逐个输入字符 → 看 echo 回显、D13 LED 翻转
+moxin shell --no-tui  # REPL 模式
+moxin> run            # 启动 simavr
+moxin> send hello     # 注入串口 RX(bridge 按 9600 波特逐字节喂)
 moxin> stop
+```
+
+TUI 模式下(`moxin shell`)：输入条为空时直接敲字符即注入串口 RX，
+Serial Monitor 面板显示 `echo: <字符>`、D13 LED 翻转。
+
+## 断言验证（CI / AI 用）
+
+```bash
+moxin assert --serial-contains "echo: Z" --send Z --within 5s
 ```
 
 ## 预期输出

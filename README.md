@@ -83,6 +83,7 @@ moxin> help     # 查看所有命令
 | `dist <2..400>` | 设定超声波距离（cm） |
 | `env <temp> <hum>` | 设定 DHT11 温湿度 |
 | `ir <hex32>` | 发送 NEC 红外码（如 20DF10EF） |
+| `send <text>` | 把文字注入固件串口 RX |
 | `wire <引脚> -> <组件.端子>` | 连线 |
 | `show` | 查看当前接线状态 |
 | `board info` | 查看板子规格 |
