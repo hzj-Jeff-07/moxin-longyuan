@@ -109,6 +109,13 @@ impl Registry {
         self.by_kind.insert(kind, def);
     }
 
+    /// 所有已注册元件定义(排序后),给 MCP `list_components` / 内省用。
+    pub fn all(&self) -> Vec<&dyn ComponentDef> {
+        let mut defs: Vec<&dyn ComponentDef> = self.by_kind.values().map(|a| a.as_ref()).collect();
+        defs.sort_by_key(|d| d.kind());
+        defs
+    }
+
     /// 通过主名或别名查找元件定义。
     pub fn resolve(&self, kind_or_alias: &str) -> Option<&dyn ComponentDef> {
         let canonical = self

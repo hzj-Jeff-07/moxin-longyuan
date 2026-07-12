@@ -46,6 +46,14 @@ jobs:
       - name: cargo test
         run: cargo test --all-targets
 
+      # v3 M1:MCP server stdio 冒烟(纯 Rust,无需 simavr)
+      - name: MCP server smoke (initialize + tools/list)
+        run: |
+          printf '%s\n%s\n' \
+            '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' \
+            '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}' \
+            | cargo run --release -- mcp 2>/dev/null | grep -q '"board_info"'
+
       - name: cargo clippy
         run: cargo clippy --all-targets -- -D warnings
 

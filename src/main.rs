@@ -7,6 +7,7 @@ mod cmd_new;
 mod cmd_status;
 mod components;
 mod inspector;
+mod mcp;
 mod project;
 mod render;
 mod shell;
@@ -48,6 +49,8 @@ enum Cmd {
     },
     /// 检查外部依赖是否安装
     Doctor,
+    /// 启动 MCP server(stdio),让 AI Agent 直接调用 MoXin 作为 tool
+    Mcp,
     /// 将 moxin 安装到 PATH
     Install,
     /// 查询引脚状态
@@ -109,6 +112,10 @@ fn main() -> Result<ExitCode> {
         }
         Cmd::Doctor => {
             cmd_doctor::cmd_doctor()?;
+            Ok(ExitCode::SUCCESS)
+        }
+        Cmd::Mcp => {
+            mcp::cmd_mcp()?;
             Ok(ExitCode::SUCCESS)
         }
         Cmd::Install => {
