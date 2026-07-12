@@ -17,6 +17,7 @@
  *   env <temp> <hum>       设定温湿度 0..50°C / 20..90%(默认 25/60)
  *   ir <P> <B>             声明红外接收头 out 引脚(500ms 后自发一帧自检码)
  *   irtx <hex32>           发送一帧 NEC 红外码(如 20DF10EF)
+ *   lcd <hex_addr>         启用 LCD1602 I2C 从机(PCF8574 背包,常用 27)
  *   未识别的行忽略(串口 RX 注入未实现,与旧版行为一致)
  *
  * 设计:本进程链接 libsimavr.a (GPL-3.0+),与 moxin Rust 主进程完全分离,
@@ -36,6 +37,7 @@
 #include "sim_cycle_timers.h"
 #include "avr_ioport.h"
 #include "avr_adc.h"
+#include "avr_twi.h"
 #include "avr_uart.h"
 
 static avr_t *g_avr = NULL;
@@ -156,6 +158,112 @@ static void dht_on_pin_edge(uint32_t value) {
                                  * 1e6 / (double)g_avr->frequency);
     g_dht_low_cycle = 0;
     if (low_us >= 500) dht_start_response(); /* 真模块要 ≥18ms,放宽给快节奏固件 */
+}
+
+/* ---- LCD1602(PCF8574 I2C 背包,lcd 命令启用) ----
+ * simavr TWI 从机:挂 TWI_IRQ_OUTPUT 听主机,应答走 TWI_IRQ_INPUT
+ * (应答模式参考 simavr tests/i2c_eeprom.c)。
+ * PCF8574 → HD44780 4-bit:P0=RS P2=EN P4-7=D4-7;EN 下降沿锁存高 4 位。
+ * 初始化期(0x3 x3 + 0x2 单 nibble)不配对,见到 0x2 才进 4-bit 模式。 */
+static avr_irq_t *g_twi_in = NULL;
+static int g_lcd_enabled = 0;
+static uint8_t g_lcd_addr = 0x27;
+static int g_lcd_selected = 0;
+static uint8_t g_lcd_prev_pcf = 0;
+static int g_lcd_mode4 = 0;
+static int g_lcd_have_high = 0;
+static uint8_t g_lcd_high = 0;
+static uint8_t g_lcd_ddram[80];
+static uint8_t g_lcd_ac = 0;          /* HD44780 address counter */
+static int g_lcd_dirty = 0;
+static int g_lcd_flush_scheduled = 0;
+
+static avr_cycle_count_t lcd_flush_cb(avr_t *avr, avr_cycle_count_t when, void *param) {
+    (void)avr; (void)when; (void)param;
+    g_lcd_flush_scheduled = 0;
+    if (!g_lcd_dirty) return 0;
+    g_lcd_dirty = 0;
+    char row0[17], row1[17], e0[64], e1[64];
+    memcpy(row0, &g_lcd_ddram[0], 16);
+    memcpy(row1, &g_lcd_ddram[40], 16);
+    row0[16] = row1[16] = '\0';
+    json_escape(row0, e0, sizeof(e0));
+    json_escape(row1, e1, sizeof(e1));
+    printf("{\"event\":\"lcd\",\"t_us\":%llu,\"row0\":\"%s\",\"row1\":\"%s\"}\n",
+           (unsigned long long)sim_time_us(), e0, e1);
+    fflush(stdout);
+    return 0;
+}
+
+static void lcd_mark_dirty(void) {
+    g_lcd_dirty = 1;
+    if (!g_lcd_flush_scheduled) {
+        g_lcd_flush_scheduled = 1;
+        /* 30ms 合并:LiquidCrystal 类库每个 nibble 一次事务,逐字发会刷屏 */
+        avr_cycle_timer_register_usec(g_avr, 30000, lcd_flush_cb, NULL);
+    }
+}
+
+static void lcd_exec(uint8_t rs, uint8_t byte) {
+    if (rs) {
+        int row = (g_lcd_ac >= 0x40) ? 1 : 0;
+        int col = g_lcd_ac & 0x3F;
+        if (col < 40) g_lcd_ddram[row * 40 + col] = byte;
+        g_lcd_ac = (uint8_t)((g_lcd_ac + 1) & 0x7F);
+        lcd_mark_dirty();
+        return;
+    }
+    if (byte & 0x80) {
+        g_lcd_ac = byte & 0x7F;               /* set DDRAM address */
+    } else if (byte == 0x01) {
+        memset(g_lcd_ddram, ' ', sizeof(g_lcd_ddram));
+        g_lcd_ac = 0;
+        lcd_mark_dirty();
+    } else if (byte == 0x02 || byte == 0x03) {
+        g_lcd_ac = 0;                         /* return home */
+    }
+    /* function set / display ctrl / entry mode:no-op */
+}
+
+static void lcd_pcf_write(uint8_t v) {
+    uint8_t en = (v >> 2) & 1;
+    uint8_t prev_en = (g_lcd_prev_pcf >> 2) & 1;
+    if (prev_en && !en) {                      /* EN 下降沿:锁存 */
+        uint8_t nib = v >> 4;
+        uint8_t rs = v & 1;
+        if (!g_lcd_mode4) {
+            if (nib == 0x2) g_lcd_mode4 = 1;   /* 8-bit 初始化写(0x3)忽略 */
+        } else if (!g_lcd_have_high) {
+            g_lcd_high = nib;
+            g_lcd_have_high = 1;
+        } else {
+            g_lcd_have_high = 0;
+            lcd_exec(rs, (uint8_t)((g_lcd_high << 4) | nib));
+        }
+    }
+    g_lcd_prev_pcf = v;
+}
+
+static void twi_out_cb(struct avr_irq_t *irq, uint32_t value, void *param) {
+    (void)irq; (void)param;
+    if (!g_lcd_enabled || !g_twi_in) return;
+    avr_twi_msg_irq_t msg;
+    msg.u.v = value;
+    if (msg.u.twi.msg & TWI_COND_STOP) {
+        g_lcd_selected = 0;
+    }
+    if (msg.u.twi.msg & TWI_COND_START) {
+        g_lcd_selected = ((msg.u.twi.addr >> 1) == g_lcd_addr);
+        if (g_lcd_selected) {
+            avr_raise_irq(g_twi_in, avr_twi_irq_msg(TWI_COND_ACK, msg.u.twi.addr, 1));
+        }
+        return;
+    }
+    if (g_lcd_selected && (msg.u.twi.msg & TWI_COND_WRITE)) {
+        lcd_pcf_write(msg.u.twi.data);
+        avr_raise_irq(g_twi_in, avr_twi_irq_msg(TWI_COND_ACK, msg.u.twi.addr, 1));
+    }
+    /* READ 不支持:PCF8574 背包按只写用 */
 }
 
 /* ---- 红外 NEC 接收头(ir/irtx 命令声明后生效) ----
@@ -345,6 +453,12 @@ static void process_cmd_line(const char *line) {
             avr_cycle_timer_register_usec(g_avr, 500000, ir_demo_cb, NULL);
             return;
         }
+        if (sscanf(line, "lcd %x", &hex) == 1) {
+            if (hex < 0x08 || hex > 0x77) return; /* 合法 7-bit 地址范围 */
+            g_lcd_addr = (uint8_t)hex;
+            g_lcd_enabled = 1;
+            return;
+        }
     }
     {
         char dp;
@@ -471,13 +585,24 @@ int main(int argc, char **argv) {
         }
     }
 
+    /* TWI 从机挂钩(LCD1602 等 I2C 外设;lcd 命令启用前不 ACK 任何地址) */
+    {
+        memset(g_lcd_ddram, ' ', sizeof(g_lcd_ddram));
+        avr_irq_t *twi_out =
+            avr_io_getirq(avr, AVR_IOCTL_TWI_GETIRQ(0), TWI_IRQ_OUTPUT);
+        g_twi_in = avr_io_getirq(avr, AVR_IOCTL_TWI_GETIRQ(0), TWI_IRQ_INPUT);
+        if (twi_out) {
+            avr_irq_register_notify(twi_out, twi_out_cb, NULL);
+        }
+    }
+
     /* stdin 设成非阻塞,主循环轮询命令 */
     {
         int fl = fcntl(STDIN_FILENO, F_GETFL, 0);
         if (fl >= 0) fcntl(STDIN_FILENO, F_SETFL, fl | O_NONBLOCK);
     }
 
-    log_event("{\"event\":\"hello\",\"protocol\":\"1\",\"capabilities\":[\"adc\",\"serial\",\"sr04\",\"dht\",\"ir\"]}");
+    log_event("{\"event\":\"hello\",\"protocol\":\"1\",\"capabilities\":[\"adc\",\"serial\",\"sr04\",\"dht\",\"ir\",\"lcd\"]}");
 
     {
         char buf[128];

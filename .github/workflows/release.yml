@@ -112,6 +112,13 @@ jobs:
           ../../target/release/moxin build
           ../../target/release/moxin assert --serial-contains "code=20DF10EF" --within 5s
 
+      # v0.7.0 起:验证 LCD1602 TWI 从机(每次 endTransmission 必须被 ACK)
+      - name: Real-sim verify (lcd-hello, TWI slave ACK)
+        working-directory: examples/lcd-hello
+        run: |
+          ../../target/release/moxin build
+          ../../target/release/moxin assert --serial-contains "lcd ok" --within 5s
+
   # 三平台构建二进制
   build:
     name: Build ${{ matrix.target }}

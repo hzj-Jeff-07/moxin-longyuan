@@ -23,6 +23,7 @@ mod dc_motor;
 mod dht11;
 mod dupont;
 mod ir_receiver;
+mod lcd1602;
 mod led;
 mod photoresistor;
 mod potentiometer;
@@ -132,6 +133,7 @@ impl Registry {
         r.register(Arc::new(ultrasonic::Ultrasonic));
         r.register(Arc::new(dht11::Dht11));
         r.register(Arc::new(ir_receiver::IrReceiver));
+        r.register(Arc::new(lcd1602::Lcd1602));
         r.register(Arc::new(seven_segment::SevenSegment));
         r.register(Arc::new(breadboard::Breadboard));
         r.register(Arc::new(dupont::Dupont));

@@ -1,0 +1,19 @@
+[project]
+name = "lcd-hello"
+board = "arduino-uno"
+version = "0.2"
+
+[[component]]
+id = "lcd1"
+type = "lcd1602"
+
+[[wire]]
+from = "board.A4"
+to = "lcd1.sda"
+
+[[wire]]
+from = "board.A5"
+to = "lcd1.scl"
+
+[code]
+src = "src/main.ino"

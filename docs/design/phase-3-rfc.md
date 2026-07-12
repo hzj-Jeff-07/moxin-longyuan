@@ -151,12 +151,36 @@ cargo test 177 / 元件 14 种 / examples 17。真机 e2e 靠 CI 新增的 dht11
 - 元件渲染最近一帧码;shell `ir <hex>` 命令;example `ir-remote`
   (手写 NEC 解码 + 电源键翻转 LED);CI 加 `code=20DF10EF` 关卡
 
-### 10/11. LCD1602 / OLED SSD1306(I2C,最重)
+### 10. LCD1602(I2C / PCF8574 背包)— ✅ 完成(2026-07-12,细则 2026-07-11 补)
 
-- 需要挂 simavr TWI:bridge 实现 PCF8574(LCD)/SSD1306(OLED)从机模型,
-  按 avr_twi.h 的 TWI_IRQ 协议应答;LCD 输出 16×2 字符 `lcd` 事件,
-  OLED 输出 128×64 帧缓冲(增量行事件),moxin 侧 TUI 开专用面板渲染
-- 工作量大(预估各 3-5 天),放批次 B 收尾;动工前单独细化
+**bridge TWI 从机**(参考 simavr tests/i2c_eeprom.c 的应答模式):
+
+- 挂 `AVR_IOCTL_TWI_GETIRQ(0)` 的 `TWI_IRQ_OUTPUT` notify,应答走 `TWI_IRQ_INPUT`
+- `lcd <hex_addr>` stdin 命令启用(moxin 按元件自动下发,默认 0x27);
+  未启用时不 ACK 任何地址,不影响老固件
+- START:`(msg.addr >> 1) == 0x27` → 选中 + ACK;STOP → 取消选中;
+  WRITE → 喂 PCF8574 字节 + ACK;READ 不支持(背包只写)
+- **PCF8574 → HD44780 4-bit 解码**:P0=RS P2=EN P4-7=D4-7(最常见映射);
+  EN 下降沿锁存高 4 位;初始化期(0x3/0x3/0x3/0x2 单 nibble)不配对,
+  见到 nibble 0x2 才进 4-bit 模式开始两两配对
+- 命令子集:0x01 清屏 / 0x02 归位 / 0x80|addr 置 DDRAM 地址;
+  function set / display / entry mode 一律 no-op(不影响字符流)
+- DDRAM 80 字节,row0=0x00 起,row1=0x40 起,可见窗口 16 列
+- **事件节流**:字符写入置脏标记,30ms cycle timer 合并后发一条
+  `{"event":"lcd","t_us":..,"row0":"<16字符>","row1":"<16字符>"}`
+  (LiquidCrystal 类库每个 nibble 一次 I2C 事务,按 STOP 发事件会刷屏)
+- capabilities 加 `"lcd"`
+
+**Rust**:`BridgeEvent::Lcd` → `RunState::lcd: Option<(String,String)>`;
+`configure_lcds` 自动下发;`lcd1602` 元件双行渲染;example `lcd-hello`
+用裸 `Wire.h` 手写背包驱动(不引第三方库,CI 无需 lib install),
+固件校验每次 `endTransmission` 的 ACK,全部成功才打 `lcd ok` →
+CI 关卡 `assert --serial-contains "lcd ok"`(从机不 ACK 即失败,真 e2e)。
+
+### 11. OLED SSD1306 — 待 LCD 落地后再细化
+
+- 同为 TWI 从机,但要解析 SSD1306 命令流 + 128×64 帧缓冲,
+  TUI 侧盲文点阵(⣿)降采样渲染;等 LCD 验证 TWI hook 可靠后动工
 
 ## 四、测试与质量线
 
