@@ -397,6 +397,31 @@ impl RunningSim {
         Ok(())
     }
 
+    /// 向固件注入串口 RX 文本(bridge 按 9600 波特逐字节喂 Serial.read)。
+    /// 文本内不能含换行(stdin 命令按行分割);换行作为帧结尾由调用方决定。
+    pub fn send_serial(&mut self, text: &str) -> Result<()> {
+        if let Ok(s) = self.state.lock() {
+            // 老 bridge 无 serialrx 能力:静默丢弃只会让用户困惑,明确报错
+            if s.bridge_protocol.is_some()
+                && !s.bridge_capabilities.iter().any(|c| c == "serialrx")
+            {
+                bail!(
+                    "bridge does not support serial rx injection (capabilities: {:?}) — rebuild bridge/ (make -C bridge)",
+                    s.bridge_capabilities
+                );
+            }
+        }
+        let Some(stdin) = self.stdin.as_mut() else {
+            bail!("bridge stdin not available — cannot inject serial");
+        };
+        // 命令通道按行:去掉 payload 里的换行,避免截断/串命令
+        let clean: String = text.chars().filter(|c| *c != '\n' && *c != '\r').collect();
+        writeln!(stdin, "serial {}", clean)
+            .and_then(|_| stdin.flush())
+            .map_err(|e| anyhow!("write serial command to bridge: {}", e))?;
+        Ok(())
+    }
+
     /// 启用 bridge 的 OLED SSD1306 I2C 从机(7-bit 地址,常用 0x3C)。
     pub fn configure_oled(&mut self, addr: u8) -> Result<()> {
         let Some(stdin) = self.stdin.as_mut() else {

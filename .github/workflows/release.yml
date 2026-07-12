@@ -126,6 +126,13 @@ jobs:
           ../../target/release/moxin build
           ../../target/release/moxin assert --serial-contains "oled ok" --within 5s
 
+      # 串口 RX 注入:assert --send 注入 'Z' → serial-echo 回显 "echo: Z"(自包含)
+      - name: Real-sim verify (serial-echo, RX injection)
+        working-directory: examples/serial-echo
+        run: |
+          ../../target/release/moxin build
+          ../../target/release/moxin assert --serial-contains "echo: Z" --send Z --within 5s
+
   # 三平台构建二进制
   build:
     name: Build ${{ matrix.target }}

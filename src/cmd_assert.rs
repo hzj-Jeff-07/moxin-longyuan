@@ -18,6 +18,7 @@ pub fn cmd_assert(
     toggles: bool,
     within: Option<String>,
     serial_contains: Option<String>,
+    send: Option<String>,
 ) -> Result<ExitCode> {
     let mode = AssertMode::resolve(&pin, &eq, &after, toggles, &within, &serial_contains)?;
 
@@ -35,6 +36,12 @@ pub fn cmd_assert(
     // 全部断言模式都需要让 simulator 跑起来观测事件，与 Run 命令相同的启动姿势。
     let mut sim = board.spawn_sim(&root, &artifact, false)?;
     crate::sim::configure_peripherals(&mut sim, &project, spec)?;
+
+    // --send:注入串口 RX 后再断言(测串口输入 → 输出的闭环)。给固件一点 setup 时间。
+    if let Some(text) = send.as_deref() {
+        std::thread::sleep(Duration::from_millis(300));
+        sim.send_serial(text)?;
+    }
 
     let result = match mode {
         AssertMode::PinEq { pin_name, expected, after_d } => {
