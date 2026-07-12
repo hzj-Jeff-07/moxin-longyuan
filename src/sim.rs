@@ -455,10 +455,10 @@ impl RunningSim {
     /// 文本内不能含换行(stdin 命令按行分割);换行作为帧结尾由调用方决定。
     pub fn send_serial(&mut self, text: &str) -> Result<()> {
         if let Ok(s) = self.state.lock() {
-            // 老 bridge 无 serialrx 能力:静默丢弃只会让用户困惑,明确报错
-            if s.bridge_protocol.is_some()
-                && !s.bridge_capabilities.iter().any(|c| c == "serialrx")
-            {
+            // 老 bridge 无 serialrx 能力(且不发 hello,capabilities 为空):静默丢弃
+            // 只会让用户困惑,明确报错。与 set_adc/set_env/send_ir/set_distance 同款判据
+            // (不加 protocol.is_some() 守卫,否则老 bridge 因 protocol=None 被漏掉)。
+            if !s.bridge_capabilities.iter().any(|c| c == "serialrx") {
                 bail!(
                     "bridge does not support serial rx injection (capabilities: {:?}) — rebuild bridge/ (make -C bridge)",
                     s.bridge_capabilities
