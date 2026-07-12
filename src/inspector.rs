@@ -111,6 +111,16 @@ impl Inspector for StubInspector {
             color: Color::Reset,
         });
 
+        // 6. Sensors(运行时外设状态汇总,有注入/仿真值才显示;Phase 3 外设可见)
+        if let Some(sensor_summary) = summarize_sensors(state) {
+            out.push(InspectorLine {
+                icon: '✓',
+                label: "Sensors".to_string(),
+                value: sensor_summary,
+                color: Color::Rgb(120, 200, 255),
+            });
+        }
+
         // Status 段
         let status = if let Some(reason) = state.bridge_exit_reason.as_ref() {
             InspectorStatus {
@@ -133,6 +143,38 @@ impl Inspector for StubInspector {
         };
 
         (out, status)
+    }
+}
+
+/// 把运行时外设状态聚合成一行摘要,如 "A0:512, 31°C/75%, 120cm, IR:20DF10EF"。
+/// 只汇总有值的外设(AI 一眼看清当前注入/仿真了什么);全无 → None(不显示这行)。
+fn summarize_sensors(state: &RunState) -> Option<String> {
+    let mut parts: Vec<String> = Vec::new();
+    // ADC:按通道号排序,A<ch>:<value>
+    let mut adc: Vec<(&u8, &u16)> = state.adc_values.iter().collect();
+    adc.sort_by_key(|(ch, _)| **ch);
+    for (ch, v) in adc {
+        parts.push(format!("A{}:{}", ch, v));
+    }
+    if let Some((t, h)) = state.dht_env {
+        parts.push(format!("{}°C/{}%", t, h));
+    }
+    if let Some(cm) = state.ultrasonic_cm {
+        parts.push(format!("{}cm", cm));
+    }
+    if let Some(code) = state.ir_code {
+        parts.push(format!("IR:{:08X}", code));
+    }
+    if state.lcd.is_some() {
+        parts.push("LCD".to_string());
+    }
+    if state.oled.is_some() {
+        parts.push("OLED".to_string());
+    }
+    if parts.is_empty() {
+        None
+    } else {
+        Some(parts.join(", "))
     }
 }
 
@@ -185,6 +227,50 @@ mod tests {
     #[test]
     fn summarize_empty() {
         assert_eq!(summarize_components(&[]), "—");
+    }
+
+    #[test]
+    fn sensors_none_when_idle() {
+        assert!(summarize_sensors(&RunState::default()).is_none());
+    }
+
+    #[test]
+    fn sensors_summarize_injected_state() {
+        let mut s = RunState {
+            dht_env: Some((31, 75)),
+            ultrasonic_cm: Some(120),
+            ir_code: Some(0x20DF10EF),
+            ..Default::default()
+        };
+        s.adc_values.insert(0, 512);
+        let out = summarize_sensors(&s).expect("has sensors");
+        assert!(out.contains("A0:512"), "got: {out}");
+        assert!(out.contains("31°C/75%"), "got: {out}");
+        assert!(out.contains("120cm"), "got: {out}");
+        assert!(out.contains("IR:20DF10EF"), "got: {out}");
+    }
+
+    #[test]
+    fn inspector_shows_sensors_line_when_present() {
+        let project = crate::project::Project {
+            project: crate::project::ProjectMeta {
+                name: "t".into(),
+                board: "arduino-uno".into(),
+                version: "0.2".into(),
+            },
+            components: vec![],
+            wires: vec![],
+            code: None,
+        };
+        let s = RunState {
+            ultrasonic_cm: Some(42),
+            ..Default::default()
+        };
+        let (lines, _) = StubInspector.inspect(&project, &s);
+        assert!(lines.iter().any(|l| l.label == "Sensors" && l.value.contains("42cm")));
+        // idle 时不出现 Sensors 行
+        let (lines2, _) = StubInspector.inspect(&project, &RunState::default());
+        assert!(!lines2.iter().any(|l| l.label == "Sensors"));
     }
 
     #[test]

@@ -255,5 +255,6 @@ fn run_blink_e2e() {
 - 串口 RX 注入(`send` / TUI 按键 / `assert --send`)走 bridge `serial` 命令,按 9600 波特逐字节注入(v0.7.0);老 bridge 无 `serialrx` 能力会被 `send_serial` 明确报错
 - Windows 上 simavr 无现成包(WSL / MSYS2 自编译),`moxin doctor` 提示已如实说明;考虑在 release 附预编译 bridge
 - `.moxin-state.json` 只在 `run --output json` 模式落盘;TUI/REPL 模式下 `moxin status` 读到的是上一次 json run 的快照
+- 状态快照 = `RunState::to_json`(全外设:pin_states/adc/pwm/dht/ultrasonic_cm/ir_code/lcd/oled/serial_tail,v0.7.0 起完整);加新外设记得同步进 to_json + inspector `summarize_sensors`
 
 每月复审本文件,删过时条目。(上次复审:2026-07,删除了 4 条已修复的跨平台坑)

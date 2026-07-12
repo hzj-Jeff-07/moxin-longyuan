@@ -156,14 +156,68 @@ impl Default for RunState {
 }
 
 impl RunState {
+    /// 落盘完整状态快照 `.moxin-state.json`,给 `moxin status` 和 AI Agent 消费。
+    /// 项目立身之本是"让 AI 读懂 MCU 状态",所以这里把全部外设状态都序列化出来,
+    /// 而不只是 GPIO —— 手工构 JSON,避免给内部类型(PwmSample 等)派生 Serialize。
     pub fn write_state_file(&self, path: &std::path::Path) {
-        let mut map = serde_json::Map::new();
-        map.insert("ready".into(), serde_json::Value::Bool(self.ready));
-        map.insert("mcu".into(), serde_json::Value::String(self.mcu.clone()));
-        map.insert("bridge_exited".into(), serde_json::Value::Bool(self.bridge_exited));
+        let snapshot = self.to_json();
+        let _ = std::fs::write(path, serde_json::to_string_pretty(&snapshot).unwrap_or_default());
+    }
+
+    /// 完整状态 → JSON。write_state_file 落盘用;也便于单测直接断言字段。
+    pub fn to_json(&self) -> serde_json::Value {
+        use serde_json::{json, Map, Value};
+        let mut map = Map::new();
+        map.insert("ready".into(), Value::Bool(self.ready));
+        map.insert("mcu".into(), Value::String(self.mcu.clone()));
+        map.insert("freq".into(), json!(self.freq));
+        map.insert("voltage_mv".into(), json!(self.voltage_mv));
+        map.insert("bridge_exited".into(), Value::Bool(self.bridge_exited));
+        map.insert("button_pressed".into(), Value::Bool(self.button_pressed));
+
         let pins: HashMap<&str, u8> = self.pin_states.iter().map(|(k, v)| (k.as_str(), *v)).collect();
         map.insert("pin_states".into(), serde_json::to_value(&pins).unwrap_or_default());
-        let _ = std::fs::write(path, serde_json::to_string_pretty(&map).unwrap_or_default());
+
+        // PWM:pin → {duty, freq_hz, stable}(只收稳定采样,过期与否交给读者判断)
+        if !self.pwm.is_empty() {
+            let pwm: Map<String, Value> = self
+                .pwm
+                .iter()
+                .map(|(k, s)| (k.clone(), json!({"duty": s.duty, "freq_hz": s.freq_hz, "stable": s.stable})))
+                .collect();
+            map.insert("pwm".into(), Value::Object(pwm));
+        }
+        // ADC:通道 → 0..1023(键转字符串,JSON object key 必须是字符串)
+        if !self.adc_values.is_empty() {
+            let adc: Map<String, Value> = self
+                .adc_values
+                .iter()
+                .map(|(ch, v)| (ch.to_string(), json!(v)))
+                .collect();
+            map.insert("adc".into(), Value::Object(adc));
+        }
+        if let Some(cm) = self.ultrasonic_cm {
+            map.insert("ultrasonic_cm".into(), json!(cm));
+        }
+        if let Some((t, h)) = self.dht_env {
+            map.insert("dht".into(), json!({"temp": t, "hum": h}));
+        }
+        if let Some(code) = self.ir_code {
+            map.insert("ir_code".into(), json!(format!("{:08X}", code)));
+        }
+        if let Some((r0, r1)) = &self.lcd {
+            map.insert("lcd".into(), json!([r0, r1]));
+        }
+        if let Some(rows) = &self.oled {
+            map.insert("oled".into(), json!(rows));
+        }
+        // 最近串口输出(最多 8 行),AI 读"固件打印了什么"
+        if !self.serial_lines.is_empty() {
+            let recent: Vec<&String> = self.serial_lines.iter().rev().take(8).map(|(_, s)| s).collect();
+            let recent: Vec<&String> = recent.into_iter().rev().collect();
+            map.insert("serial_tail".into(), json!(recent));
+        }
+        Value::Object(map)
     }
 
     pub fn loop_time_us(&self) -> Option<u64> {
@@ -401,10 +455,10 @@ impl RunningSim {
     /// 文本内不能含换行(stdin 命令按行分割);换行作为帧结尾由调用方决定。
     pub fn send_serial(&mut self, text: &str) -> Result<()> {
         if let Ok(s) = self.state.lock() {
-            // 老 bridge 无 serialrx 能力:静默丢弃只会让用户困惑,明确报错
-            if s.bridge_protocol.is_some()
-                && !s.bridge_capabilities.iter().any(|c| c == "serialrx")
-            {
+            // 老 bridge 无 serialrx 能力(且不发 hello,capabilities 为空):静默丢弃
+            // 只会让用户困惑,明确报错。与 set_adc/set_env/send_ir/set_distance 同款判据
+            // (不加 protocol.is_some() 守卫,否则老 bridge 因 protocol=None 被漏掉)。
+            if !s.bridge_capabilities.iter().any(|c| c == "serialrx") {
                 bail!(
                     "bridge does not support serial rx injection (capabilities: {:?}) — rebuild bridge/ (make -C bridge)",
                     s.bridge_capabilities
@@ -1114,6 +1168,52 @@ mod tests {
         let (r0, r1) = s.lcd.as_ref().expect("lcd rows set");
         assert!(r0.starts_with("Hello MoXin!"));
         assert!(r1.starts_with("LCD1602"));
+    }
+
+    #[test]
+    fn state_snapshot_includes_all_peripherals() {
+        // 项目立身之本:AI 读的快照必须包含全部注入/仿真的外设状态,不只是 GPIO。
+        let mut s = RunState {
+            ready: true,
+            dht_env: Some((31, 75)),
+            ultrasonic_cm: Some(120),
+            ir_code: Some(0x20DF10EF),
+            lcd: Some(("Hello".into(), "World".into())),
+            oled: Some(vec!["⣿".to_string(), "⠀".to_string()]),
+            ..Default::default()
+        };
+        s.pin_states.insert("B:5".to_string(), 1);
+        s.adc_values.insert(0, 512);
+        s.pwm.insert(
+            "B:1".to_string(),
+            PwmSample { duty: 128, freq_hz: 490, stable: true, t_us: 1 },
+        );
+        s.serial_lines.push_back((1, "boot".to_string()));
+
+        let j = s.to_json();
+        assert_eq!(j["adc"]["0"], 512);
+        assert_eq!(j["dht"]["temp"], 31);
+        assert_eq!(j["dht"]["hum"], 75);
+        assert_eq!(j["ultrasonic_cm"], 120);
+        assert_eq!(j["ir_code"], "20DF10EF");
+        assert_eq!(j["lcd"][0], "Hello");
+        assert_eq!(j["oled"][0], "⣿");
+        assert_eq!(j["pwm"]["B:1"]["duty"], 128);
+        assert_eq!(j["serial_tail"][0], "boot");
+        assert_eq!(j["pin_states"]["B:5"], 1);
+    }
+
+    #[test]
+    fn state_snapshot_omits_absent_peripherals() {
+        // 没接的外设不出现在快照里(AI 不会误以为有 DHT/OLED)。
+        let s = RunState::default();
+        let j = s.to_json();
+        assert!(j.get("dht").is_none());
+        assert!(j.get("oled").is_none());
+        assert!(j.get("adc").is_none());
+        // 但基础字段总在
+        assert!(j.get("pin_states").is_some());
+        assert_eq!(j["voltage_mv"], 5000);
     }
 
     #[test]
