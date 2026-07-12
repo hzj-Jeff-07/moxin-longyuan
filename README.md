@@ -114,6 +114,24 @@ moxin run --output json | jq -c
 
 Ctrl-C 停止；bridge 自行退出时也会自动结束。
 
+同时 `run --output json` 会把**完整状态快照**落盘到 `build/.moxin-state.json`，
+供 `moxin status` 和 AI Agent 按需读取。快照含全部外设的当前状态，而不只是 GPIO：
+
+```jsonc
+{
+  "ready": true, "mcu": "atmega328p", "voltage_mv": 5000,
+  "pin_states": { "B:5": 1 },
+  "adc": { "0": 512 },                      // 电位器/光敏注入值
+  "pwm": { "B:1": {"duty":128,"freq_hz":490,"stable":true} },
+  "dht": { "temp": 31, "hum": 75 },         // DHT11
+  "ultrasonic_cm": 120,                     // HC-SR04
+  "ir_code": "20DF10EF",                    // 红外 NEC
+  "lcd": ["Hello MoXin!    ", "..."],       // LCD1602 两行
+  "oled": ["⣿⣿…", "…"],                     // OLED 帧盲文降采样
+  "serial_tail": ["echo: Z"]                // 最近串口输出
+}
+```
+
 ## 项目结构
 
 ```
