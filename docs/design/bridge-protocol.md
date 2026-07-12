@@ -66,6 +66,18 @@ ir <port> <bit>
   plays one self-test frame (code 20DF10EF) so first-run and CI e2e see
   a decode without manual injection.
 
+### lcd (v0.7.0)
+```
+lcd <hex_addr>
+```
+- Enables the LCD1602 I2C slave (PCF8574 backpack) at the given 7-bit
+  address (0x08..0x77; conventionally 27). Auto-sent by moxin when the
+  project has an `lcd1602` component. Until enabled the bridge ACKs no
+  I2C address, so old firmware is unaffected. The slave decodes the
+  PCF8574→HD44780 4-bit protocol (P0=RS, P2=EN latch on falling edge,
+  P4-7=data; single-nibble init handled) and emits throttled `lcd`
+  events. Read transfers are not ACKed (backpack is write-only here).
+
 ### irtx (v0.7.0)
 ```
 irtx <hex32>
@@ -79,7 +91,7 @@ irtx <hex32>
 ## Events
 
 ### hello (protocol ≥1, AVR bridge)
-{"event":"hello","protocol":"1","capabilities":["adc","serial","sr04","dht","ir"]}
+{"event":"hello","protocol":"1","capabilities":["adc","serial","sr04","dht","ir","lcd"]}
 Emitted once, before `ready`. Rust side stores capabilities;
 `RunningSim::set_adc` refuses when "adc" is absent (old bridge → clear error
 instead of a silently dropped command).
@@ -118,6 +130,12 @@ Echo of a processed stdin `env` command. Rust side updates
 {"event":"ir","t_us":<us>,"code":<u32>}
 Emitted when an NEC frame is played (irtx command or self-test frame).
 Rust side updates `RunState.ir_code`.
+
+### lcd (v0.7.0, AVR bridge)
+{"event":"lcd","t_us":<us>,"row0":"<16 chars>","row1":"<16 chars>"}
+Visible 16x2 window of the HD44780 DDRAM, emitted at most every ~30ms
+while dirty (per-nibble I2C transactions would flood otherwise).
+Rust side updates `RunState.lcd`.
 
 ### button
 {"event":"button","t_us":<us>,"pressed":true|false}

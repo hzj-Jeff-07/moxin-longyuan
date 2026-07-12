@@ -107,6 +107,8 @@ pub struct RunState {
     pub dht_env: Option<(u8, u8)>,
     /// 最近发送的红外 NEC 码(bridge `ir` 事件回显)。
     pub ir_code: Option<u32>,
+    /// LCD1602 可见区两行内容(bridge `lcd` 事件,30ms 节流)。
+    pub lcd: Option<(String, String)>,
     /// bridge `hello` 事件宣告的能力(如 "adc" / "serial");老 bridge 不发 hello → 空。
     pub bridge_capabilities: Vec<String>,
     /// bridge 协议版本,来自 `hello`;老 bridge → None。
@@ -141,6 +143,7 @@ impl Default for RunState {
             ultrasonic_cm: None,
             dht_env: None,
             ir_code: None,
+            lcd: None,
             bridge_capabilities: Vec::new(),
             bridge_protocol: None,
             pwm_trackers: HashMap::new(),
@@ -243,6 +246,8 @@ enum BridgeEvent {
     Dht { t_us: u64, temp: u8, hum: u8 },
     #[serde(rename = "ir")]
     Ir { t_us: u64, code: u32 },
+    #[serde(rename = "lcd")]
+    Lcd { t_us: u64, row0: String, row1: String },
     #[serde(rename = "exit")]
     Exit { state: i32 },
     #[serde(rename = "button")]
@@ -376,6 +381,17 @@ impl RunningSim {
         Ok(())
     }
 
+    /// 启用 bridge 的 LCD1602 I2C 从机(7-bit 地址,常用 0x27)。
+    pub fn configure_lcd(&mut self, addr: u8) -> Result<()> {
+        let Some(stdin) = self.stdin.as_mut() else {
+            bail!("bridge stdin not available — cannot configure lcd");
+        };
+        writeln!(stdin, "lcd {:02X}", addr)
+            .and_then(|_| stdin.flush())
+            .map_err(|e| anyhow!("write lcd command to bridge: {}", e))?;
+        Ok(())
+    }
+
     /// 注入超声波距离(2..=400cm,超界截断)。
     pub fn set_distance(&mut self, cm: u16) -> Result<()> {
         if let Ok(s) = self.state.lock() {
@@ -411,6 +427,19 @@ pub fn configure_peripherals(
     configure_ultrasonics(sim, project, spec)?;
     configure_dhts(sim, project, spec)?;
     configure_irs(sim, project, spec)?;
+    configure_lcds(sim, project, spec)?;
+    Ok(())
+}
+
+/// 项目里有 LCD1602 → 启用 bridge 的 I2C 从机(地址固定 0x27,SDA/SCL 走 A4/A5)。
+fn configure_lcds(
+    sim: &mut RunningSim,
+    project: &crate::project::Project,
+    _spec: &crate::boards::BoardSpec,
+) -> Result<()> {
+    if project.components.iter().any(|c| c.kind == "lcd1602") {
+        sim.configure_lcd(0x27)?;
+    }
     Ok(())
 }
 
@@ -626,6 +655,10 @@ fn apply_event(
         BridgeEvent::Ir { t_us, code } => {
             s.last_event_t_us = t_us;
             s.ir_code = Some(code);
+        }
+        BridgeEvent::Lcd { t_us, row0, row1 } => {
+            s.last_event_t_us = t_us;
+            s.lcd = Some((row0, row1));
         }
         BridgeEvent::Exit { state: exit_state } => {
             s.bridge_exited = true;
@@ -1019,6 +1052,20 @@ mod tests {
         let s = state.lock().unwrap();
         assert_eq!(s.dht_env, Some((31, 75)));
         assert_eq!(s.last_event_t_us, 42);
+    }
+
+    #[test]
+    fn apply_event_lcd_updates_rows() {
+        let state = Arc::new(Mutex::new(RunState::default()));
+        let ev: BridgeEvent = serde_json::from_str(
+            r#"{"event":"lcd","t_us":9,"row0":"Hello MoXin!    ","row1":"LCD1602 via I2C "}"#,
+        )
+        .expect("lcd event should deserialize from real bridge JSON");
+        apply_event(&state, ev, &|_, _| false);
+        let s = state.lock().unwrap();
+        let (r0, r1) = s.lcd.as_ref().expect("lcd rows set");
+        assert!(r0.starts_with("Hello MoXin!"));
+        assert!(r1.starts_with("LCD1602"));
     }
 
     #[test]

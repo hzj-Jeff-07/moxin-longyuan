@@ -23,12 +23,13 @@
   - B7 DHT11 ✅(bridge 边沿回放器 + dht/env 命令;CI dht11 关卡,2026-07-11 合并)
   - B9 红外 NEC ✅(ir/irtx 命令 + 500ms 自检帧;CI ir 关卡,2026-07-11)
   - B8 STM32F103 ❌ 书面豁免(QEMU 无真 F103 机型,F100 代跑=假机型,与如实标注原则冲突;见 RFC)
-  - 剩:LCD1602 / OLED(需 simavr TWI hook,批次 B 最重的两件)
+  - B10 LCD1602 ✅(bridge TWI 从机 + PCF8574/HD44780 解码 + lcd 事件;CI "lcd ok" 关卡,2026-07-12)
+  - 剩:OLED SSD1306(TWI 从机 + 128×64 帧缓冲,批次 B 最后一件)
 - `docs/planning/`(7day 计划)已与实际历史脱节,仅作参考,进度以 git log + RFC 勾选为准
 
 ✅ 当前范围:
 - Arduino Uno / Arduino Nano (simavr,同 bridge) + STM32F405 (qemu netduinoplus2)
-- 元件 15 种(led / rgb_led / button / resistor / buzzer / potentiometer / photoresistor / servo / dc_motor / ultrasonic / dht11 / ir_receiver / seven_segment / breadboard / dupont),经 `src/components/` 注册式接入
+- 元件 16 种(led / rgb_led / button / resistor / buzzer / potentiometer / photoresistor / servo / dc_motor / ultrasonic / dht11 / ir_receiver / lcd1602 / seven_segment / breadboard / dupont),经 `src/components/` 注册式接入
 - 新增元件 = `src/components/<name>.rs` 实现 `ComponentDef` + `Registry::builtin()` 注册一行,**不改 render/shell/inspector 主路径**
 
 ❌ 不做(明确禁区):
@@ -98,7 +99,7 @@ src/
     gd32vf103.rs    占位:build/spawn_sim 必须 bail "not yet implemented"
 bridge/             C 源码,Claude 不主动改
 components/         元件 schema TOML(与 src/components/ 对齐)
-examples/           ≤18 个(当前 18,已到上限;再加需先调规则),新增需含 README + moxin.toml
+examples/           ≤20 个(批次 B 收尾上调,当前 19),新增需含 README + moxin.toml
 docs/design/        设计文档(bridge-protocol、cli-vision、phase-2-full-rfc 是权威)
 ```
 

@@ -1,0 +1,66 @@
+# LCD1602 · components/lcd1602.toml
+# Phase 3 批次 B 第 3 件(v0.7.0)
+# 型号：1602 字符液晶 + PCF8574 I2C 背包(地址 0x27)
+
+[component_type]
+id = "lcd1602"
+display_name = "LCD1602 (I2C backpack)"
+category = "display"
+description = "16×2 字符液晶,经 PCF8574 背包走 I2C:P0=RS P2=EN P4-7=D4-7,4-bit 模式"
+schema_version = "1.0"
+
+[[pin]]
+name = "sda"
+aliases = ["d", "1"]
+electrical = "i2c_sda"
+direction = "in"
+required = true
+
+[[pin]]
+name = "scl"
+aliases = ["c", "2"]
+electrical = "i2c_scl"
+direction = "in"
+required = true
+
+[[pin]]
+name = "vcc"
+aliases = ["v", "3"]
+electrical = "power"
+direction = "in"
+required = true
+
+[[pin]]
+name = "gnd"
+aliases = ["g", "4"]
+electrical = "gnd"
+direction = "in"
+required = true
+
+# --- 可调参数 ---
+
+[[parameter]]
+name = "i2c_addr"
+type = "int"
+range = [8, 119]
+default = 39
+display_name = "I2C 地址(默认 0x27=39)"
+
+# --- 运行时状态 ---
+
+[[state_field]]
+name = "row0"
+type = "string"
+default = ""
+description = "第一行可见 16 字符(bridge lcd 事件)"
+
+[[state_field]]
+name = "row1"
+type = "string"
+default = ""
+description = "第二行可见 16 字符"
+
+# --- 备注 ---
+# bridge 侧实现 PCF8574 TWI 从机 + HD44780 4-bit 解码;
+# 项目含本元件时 moxin 启动自动下发 `lcd 27` 启用。
+# 只支持写(背包常规用法),READ 不应答。
