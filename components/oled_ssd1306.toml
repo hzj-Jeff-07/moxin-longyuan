@@ -1,0 +1,62 @@
+# OLED SSD1306 · components/oled_ssd1306.toml
+# Phase 3 批次 B 第 4 件(v0.7.0,任务书 13 件最后一件)
+# 型号：0.96" 128×64 OLED,SSD1306 控制器,I2C(地址 0x3C)
+
+[component_type]
+id = "oled_ssd1306"
+display_name = "OLED SSD1306 (128x64 I2C)"
+category = "display"
+description = "128×64 单色 OLED,SSD1306 控制器走 I2C:控制字节 D/C# 选命令/数据,GDDRAM 8 页×128 列"
+schema_version = "1.0"
+
+[[pin]]
+name = "sda"
+aliases = ["d", "1"]
+electrical = "i2c_sda"
+direction = "in"
+required = true
+
+[[pin]]
+name = "scl"
+aliases = ["c", "2"]
+electrical = "i2c_scl"
+direction = "in"
+required = true
+
+[[pin]]
+name = "vcc"
+aliases = ["v", "3"]
+electrical = "power"
+direction = "in"
+required = true
+
+[[pin]]
+name = "gnd"
+aliases = ["g", "4"]
+electrical = "gnd"
+direction = "in"
+required = true
+
+# --- 可调参数 ---
+
+[[parameter]]
+name = "i2c_addr"
+type = "int"
+range = [8, 119]
+default = 60
+display_name = "I2C 地址(默认 0x3C=60)"
+
+# --- 运行时状态 ---
+
+[[state_field]]
+name = "on_pixels"
+type = "int"
+range = [0, 8192]
+default = 0
+description = "当前点亮像素数(128×64 帧缓冲统计)"
+
+# --- 备注 ---
+# bridge 侧实现 SSD1306 TWI 从机:控制字节 bit6=D/C# 选命令/数据流,
+# 水平寻址模式下数据字节按 (page,col) 写入,col 自增越界翻页;
+# 帧缓冲降采样成盲文(2×4 像素/格)以 oled 事件发回。
+# 项目含本元件时 moxin 启动自动下发 `oled 3C` 启用。

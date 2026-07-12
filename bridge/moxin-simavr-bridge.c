@@ -18,6 +18,7 @@
  *   ir <P> <B>             声明红外接收头 out 引脚(500ms 后自发一帧自检码)
  *   irtx <hex32>           发送一帧 NEC 红外码(如 20DF10EF)
  *   lcd <hex_addr>         启用 LCD1602 I2C 从机(PCF8574 背包,常用 27)
+ *   oled <hex_addr>        启用 OLED SSD1306 I2C 从机(常用 3C)
  *   未识别的行忽略(串口 RX 注入未实现,与旧版行为一致)
  *
  * 设计:本进程链接 libsimavr.a (GPL-3.0+),与 moxin Rust 主进程完全分离,
@@ -244,26 +245,156 @@ static void lcd_pcf_write(uint8_t v) {
     g_lcd_prev_pcf = v;
 }
 
+/* ---- OLED SSD1306(I2C,oled 命令启用,常用 0x3C) ----
+ * 同 LCD 挂在 TWI 从机上,按 START 地址分派。控制字节 D/C#(bit6)选命令/数据流。
+ * 帧缓冲 128×64 = 8 页 × 128 列,每字节 8 个竖直像素。水平寻址模式(Adafruit 默认):
+ * 数据字节写当前 (page,col) 后 col++,越界回 col_start 且 page++。
+ * flush 时降采样成盲文行发 oled 事件。 */
+static int g_oled_enabled = 0;
+static uint8_t g_oled_addr = 0x3C;
+static int g_oled_selected = 0;
+static int g_oled_expect_ctrl = 1;   /* 事务内下一字节是否为控制字节 */
+static int g_oled_dc = 0;            /* 0=命令流 1=数据流 */
+static int g_oled_co = 0;            /* 每字节前都带控制字节 */
+static uint8_t g_oled_fb[1024];      /* 8 页 × 128 列 */
+static int g_oled_col = 0, g_oled_page = 0;
+static int g_oled_col_start = 0, g_oled_col_end = 127;
+static int g_oled_page_start = 0, g_oled_page_end = 7;
+static int g_oled_cmd = -1;         /* 正在收参数的命令 */
+static int g_oled_cmd_args = 0;     /* 剩余参数字节数 */
+static int g_oled_cmd_argn = 0;     /* 已收参数计数 */
+static int g_oled_dirty = 0;
+static int g_oled_flush_scheduled = 0;
+
+static avr_cycle_count_t oled_flush_cb(avr_t *avr, avr_cycle_count_t when, void *param) {
+    (void)avr; (void)when; (void)param;
+    g_oled_flush_scheduled = 0;
+    if (!g_oled_dirty) return 0;
+    g_oled_dirty = 0;
+    /* 128×64 → 盲文 64 列 × 16 行(每格 2×4 像素)。逐行拼 JSON 数组。 */
+    static const int dots[4][2] = {{0x01,0x08},{0x02,0x10},{0x04,0x20},{0x40,0x80}};
+    char out[16 * 64 * 4];
+    int n = 0;
+    n += sprintf(out + n, "{\"event\":\"oled\",\"t_us\":%llu,\"rows\":[",
+                 (unsigned long long)sim_time_us());
+    for (int cr = 0; cr < 16; cr++) {
+        if (cr) out[n++] = ',';
+        out[n++] = '"';
+        for (int cc = 0; cc < 64; cc++) {
+            uint8_t braille = 0;
+            for (int dy = 0; dy < 4; dy++) {
+                for (int dx = 0; dx < 2; dx++) {
+                    int px = cc * 2 + dx;
+                    int py = cr * 4 + dy;
+                    int page = py >> 3;
+                    int bit = py & 7;
+                    if (g_oled_fb[page * 128 + px] & (1 << bit)) {
+                        braille |= dots[dy][dx];
+                    }
+                }
+            }
+            /* U+2800 + braille → UTF-8 3 字节 */
+            uint32_t cp = 0x2800 + braille;
+            out[n++] = (char)(0xE0 | (cp >> 12));
+            out[n++] = (char)(0x80 | ((cp >> 6) & 0x3F));
+            out[n++] = (char)(0x80 | (cp & 0x3F));
+        }
+        out[n++] = '"';
+    }
+    n += sprintf(out + n, "]}");
+    out[n] = '\0';
+    fputs(out, stdout);
+    fputc('\n', stdout);
+    fflush(stdout);
+    return 0;
+}
+
+static void oled_mark_dirty(void) {
+    g_oled_dirty = 1;
+    if (!g_oled_flush_scheduled) {
+        g_oled_flush_scheduled = 1;
+        avr_cycle_timer_register_usec(g_avr, 40000, oled_flush_cb, NULL);
+    }
+}
+
+static void oled_cmd_byte(uint8_t b) {
+    if (g_oled_cmd_args > 0) {
+        /* 收多字节命令的参数 */
+        if (g_oled_cmd == 0x21) {           /* column start/end */
+            if (g_oled_cmd_argn == 0) g_oled_col_start = b & 0x7F;
+            else { g_oled_col_end = b & 0x7F; g_oled_col = g_oled_col_start; }
+        } else if (g_oled_cmd == 0x22) {    /* page start/end */
+            if (g_oled_cmd_argn == 0) g_oled_page_start = b & 0x07;
+            else { g_oled_page_end = b & 0x07; g_oled_page = g_oled_page_start; }
+        }
+        g_oled_cmd_argn++;
+        g_oled_cmd_args--;
+        return;
+    }
+    switch (b) {
+        case 0x21: g_oled_cmd = 0x21; g_oled_cmd_args = 2; g_oled_cmd_argn = 0; break;
+        case 0x22: g_oled_cmd = 0x22; g_oled_cmd_args = 2; g_oled_cmd_argn = 0; break;
+        case 0x20: g_oled_cmd = 0x20; g_oled_cmd_args = 1; g_oled_cmd_argn = 0; break;
+        case 0x81: case 0xD3: case 0xD5: case 0xD9:
+        case 0xDA: case 0xDB: case 0x8D: case 0xA8:
+            g_oled_cmd = b; g_oled_cmd_args = 1; g_oled_cmd_argn = 0; break;
+        default: break;                     /* 单字节命令:忽略,不影响像素流 */
+    }
+}
+
+static void oled_data_byte(uint8_t b) {
+    int idx = g_oled_page * 128 + g_oled_col;
+    if (idx >= 0 && idx < 1024) g_oled_fb[idx] = b;
+    g_oled_col++;
+    if (g_oled_col > g_oled_col_end) {
+        g_oled_col = g_oled_col_start;
+        g_oled_page++;
+        if (g_oled_page > g_oled_page_end) g_oled_page = g_oled_page_start;
+    }
+    oled_mark_dirty();
+}
+
+static void oled_write(uint8_t b) {
+    if (g_oled_expect_ctrl) {
+        g_oled_dc = (b >> 6) & 1;
+        g_oled_co = (b >> 7) & 1;
+        if (!g_oled_co) g_oled_expect_ctrl = 0; /* 后续全是同类型 payload */
+        return;
+    }
+    if (g_oled_dc) oled_data_byte(b);
+    else oled_cmd_byte(b);
+    if (g_oled_co) g_oled_expect_ctrl = 1;      /* Co=1:每字节前再来控制字节 */
+}
+
 static void twi_out_cb(struct avr_irq_t *irq, uint32_t value, void *param) {
     (void)irq; (void)param;
-    if (!g_lcd_enabled || !g_twi_in) return;
+    if (!g_twi_in) return;
     avr_twi_msg_irq_t msg;
     msg.u.v = value;
     if (msg.u.twi.msg & TWI_COND_STOP) {
         g_lcd_selected = 0;
+        g_oled_selected = 0;
     }
     if (msg.u.twi.msg & TWI_COND_START) {
-        g_lcd_selected = ((msg.u.twi.addr >> 1) == g_lcd_addr);
-        if (g_lcd_selected) {
+        uint8_t a7 = msg.u.twi.addr >> 1;
+        g_lcd_selected = (g_lcd_enabled && a7 == g_lcd_addr);
+        g_oled_selected = (g_oled_enabled && a7 == g_oled_addr);
+        if (g_oled_selected) g_oled_expect_ctrl = 1;
+        if (g_lcd_selected || g_oled_selected) {
             avr_raise_irq(g_twi_in, avr_twi_irq_msg(TWI_COND_ACK, msg.u.twi.addr, 1));
         }
         return;
     }
-    if (g_lcd_selected && (msg.u.twi.msg & TWI_COND_WRITE)) {
-        lcd_pcf_write(msg.u.twi.data);
-        avr_raise_irq(g_twi_in, avr_twi_irq_msg(TWI_COND_ACK, msg.u.twi.addr, 1));
+    if (msg.u.twi.msg & TWI_COND_WRITE) {
+        if (g_lcd_selected) {
+            lcd_pcf_write(msg.u.twi.data);
+            avr_raise_irq(g_twi_in, avr_twi_irq_msg(TWI_COND_ACK, msg.u.twi.addr, 1));
+        } else if (g_oled_selected) {
+            oled_write(msg.u.twi.data);
+            avr_raise_irq(g_twi_in, avr_twi_irq_msg(TWI_COND_ACK, msg.u.twi.addr, 1));
+        }
     }
-    /* READ 不支持:PCF8574 背包按只写用 */
+    /* READ 不支持:两者按只写用 */
 }
 
 /* ---- 红外 NEC 接收头(ir/irtx 命令声明后生效) ----
@@ -459,6 +590,12 @@ static void process_cmd_line(const char *line) {
             g_lcd_enabled = 1;
             return;
         }
+        if (sscanf(line, "oled %x", &hex) == 1) {
+            if (hex < 0x08 || hex > 0x77) return;
+            g_oled_addr = (uint8_t)hex;
+            g_oled_enabled = 1;
+            return;
+        }
     }
     {
         char dp;
@@ -588,6 +725,7 @@ int main(int argc, char **argv) {
     /* TWI 从机挂钩(LCD1602 等 I2C 外设;lcd 命令启用前不 ACK 任何地址) */
     {
         memset(g_lcd_ddram, ' ', sizeof(g_lcd_ddram));
+        memset(g_oled_fb, 0, sizeof(g_oled_fb));
         avr_irq_t *twi_out =
             avr_io_getirq(avr, AVR_IOCTL_TWI_GETIRQ(0), TWI_IRQ_OUTPUT);
         g_twi_in = avr_io_getirq(avr, AVR_IOCTL_TWI_GETIRQ(0), TWI_IRQ_INPUT);
@@ -602,7 +740,7 @@ int main(int argc, char **argv) {
         if (fl >= 0) fcntl(STDIN_FILENO, F_SETFL, fl | O_NONBLOCK);
     }
 
-    log_event("{\"event\":\"hello\",\"protocol\":\"1\",\"capabilities\":[\"adc\",\"serial\",\"sr04\",\"dht\",\"ir\",\"lcd\"]}");
+    log_event("{\"event\":\"hello\",\"protocol\":\"1\",\"capabilities\":[\"adc\",\"serial\",\"sr04\",\"dht\",\"ir\",\"lcd\",\"oled\"]}");
 
     {
         char buf[128];

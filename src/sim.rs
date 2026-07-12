@@ -109,6 +109,8 @@ pub struct RunState {
     pub ir_code: Option<u32>,
     /// LCD1602 可见区两行内容(bridge `lcd` 事件,30ms 节流)。
     pub lcd: Option<(String, String)>,
+    /// OLED SSD1306 帧缓冲的盲文降采样(16 行 × 64 字符,bridge `oled` 事件)。
+    pub oled: Option<Vec<String>>,
     /// bridge `hello` 事件宣告的能力(如 "adc" / "serial");老 bridge 不发 hello → 空。
     pub bridge_capabilities: Vec<String>,
     /// bridge 协议版本,来自 `hello`;老 bridge → None。
@@ -144,6 +146,7 @@ impl Default for RunState {
             dht_env: None,
             ir_code: None,
             lcd: None,
+            oled: None,
             bridge_capabilities: Vec::new(),
             bridge_protocol: None,
             pwm_trackers: HashMap::new(),
@@ -248,6 +251,8 @@ enum BridgeEvent {
     Ir { t_us: u64, code: u32 },
     #[serde(rename = "lcd")]
     Lcd { t_us: u64, row0: String, row1: String },
+    #[serde(rename = "oled")]
+    Oled { t_us: u64, rows: Vec<String> },
     #[serde(rename = "exit")]
     Exit { state: i32 },
     #[serde(rename = "button")]
@@ -392,6 +397,17 @@ impl RunningSim {
         Ok(())
     }
 
+    /// 启用 bridge 的 OLED SSD1306 I2C 从机(7-bit 地址,常用 0x3C)。
+    pub fn configure_oled(&mut self, addr: u8) -> Result<()> {
+        let Some(stdin) = self.stdin.as_mut() else {
+            bail!("bridge stdin not available — cannot configure oled");
+        };
+        writeln!(stdin, "oled {:02X}", addr)
+            .and_then(|_| stdin.flush())
+            .map_err(|e| anyhow!("write oled command to bridge: {}", e))?;
+        Ok(())
+    }
+
     /// 注入超声波距离(2..=400cm,超界截断)。
     pub fn set_distance(&mut self, cm: u16) -> Result<()> {
         if let Ok(s) = self.state.lock() {
@@ -431,7 +447,7 @@ pub fn configure_peripherals(
     Ok(())
 }
 
-/// 项目里有 LCD1602 → 启用 bridge 的 I2C 从机(地址固定 0x27,SDA/SCL 走 A4/A5)。
+/// 项目里有 LCD1602 / OLED → 启用 bridge 的对应 I2C 从机(SDA/SCL 走 A4/A5)。
 fn configure_lcds(
     sim: &mut RunningSim,
     project: &crate::project::Project,
@@ -439,6 +455,9 @@ fn configure_lcds(
 ) -> Result<()> {
     if project.components.iter().any(|c| c.kind == "lcd1602") {
         sim.configure_lcd(0x27)?;
+    }
+    if project.components.iter().any(|c| c.kind == "oled_ssd1306") {
+        sim.configure_oled(0x3C)?;
     }
     Ok(())
 }
@@ -659,6 +678,10 @@ fn apply_event(
         BridgeEvent::Lcd { t_us, row0, row1 } => {
             s.last_event_t_us = t_us;
             s.lcd = Some((row0, row1));
+        }
+        BridgeEvent::Oled { t_us, rows } => {
+            s.last_event_t_us = t_us;
+            s.oled = Some(rows);
         }
         BridgeEvent::Exit { state: exit_state } => {
             s.bridge_exited = true;
@@ -1066,6 +1089,20 @@ mod tests {
         let (r0, r1) = s.lcd.as_ref().expect("lcd rows set");
         assert!(r0.starts_with("Hello MoXin!"));
         assert!(r1.starts_with("LCD1602"));
+    }
+
+    #[test]
+    fn apply_event_oled_updates_frame() {
+        let state = Arc::new(Mutex::new(RunState::default()));
+        let ev: BridgeEvent = serde_json::from_str(
+            r#"{"event":"oled","t_us":11,"rows":["⠀⣿","⠀⠀"]}"#,
+        )
+        .expect("oled event should deserialize from real bridge JSON");
+        apply_event(&state, ev, &|_, _| false);
+        let s = state.lock().unwrap();
+        let rows = s.oled.as_ref().expect("oled rows set");
+        assert_eq!(rows.len(), 2);
+        assert!(rows[0].contains('⣿'));
     }
 
     #[test]

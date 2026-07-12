@@ -1,0 +1,19 @@
+[project]
+name = "oled-hello"
+board = "arduino-uno"
+version = "0.2"
+
+[[component]]
+id = "oled1"
+type = "oled_ssd1306"
+
+[[wire]]
+from = "board.A4"
+to = "oled1.sda"
+
+[[wire]]
+from = "board.A5"
+to = "oled1.scl"
+
+[code]
+src = "src/main.ino"
