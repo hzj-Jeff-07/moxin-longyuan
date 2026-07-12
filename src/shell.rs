@@ -127,6 +127,7 @@ impl Shell {
             "adc" => self.cmd_adc(&rest),
             "dist" => self.cmd_dist(&rest),
             "env" => self.cmd_env(&rest),
+            "ir" => self.cmd_ir(&rest),
             "stop" => self.cmd_stop(),
             "sleep" => self.cmd_sleep(&rest),
             "help" | "?" => Ok(help_text()),
@@ -320,6 +321,21 @@ impl Shell {
         Ok(format!("✓ env = {}°C {}%", temp.min(50), hum.clamp(20, 90)))
     }
 
+    /// `ir <hex32>` — 发送一帧 NEC 红外码(如 `ir 20DF10EF`)。
+    fn cmd_ir(&mut self, args: &[&str]) -> Result<String> {
+        let Some(code_arg) = args.first() else {
+            bail!("usage: ir <hex32>  (e.g. ir 20DF10EF)");
+        };
+        let hex = code_arg.trim_start_matches("0x").trim_start_matches("0X");
+        let code = u32::from_str_radix(hex, 16)
+            .map_err(|_| anyhow!("invalid NEC code: {} (expect 32-bit hex)", code_arg))?;
+        let Some(sim) = self.running.as_mut() else {
+            bail!("simulator not running — try `run`");
+        };
+        sim.send_ir(code)?;
+        Ok(format!("✓ ir {:08X}", code))
+    }
+
     fn cmd_stop(&mut self) -> Result<String> {
         if let Some(sim) = self.running.take() {
             sim.stop();
@@ -356,6 +372,7 @@ fn help_text() -> String {
         servo                        SG90 servo (50Hz PWM)
         motor                        DC motor via L298N (ena/in1/in2)
         dht11                        DHT11 temp/humidity sensor
+        ir                           IR receiver (NEC, VS1838)
         7seg                         seven-segment display
         breadboard                   breadboard
         dupont [color]               dupont jumper wire
@@ -368,6 +385,7 @@ fn help_text() -> String {
   adc <A0..A5|ch> <0..1023>        inject ADC value (potentiometer knob)
   dist <2..400>                    set ultrasonic distance in cm
   env <temp> <hum>                 set DHT11 temperature/humidity
+  ir <hex32>                       send NEC infrared frame
   stop                             stop simulator
   exit | quit                      leave shell",
     )

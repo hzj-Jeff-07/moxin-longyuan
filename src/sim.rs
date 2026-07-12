@@ -105,6 +105,8 @@ pub struct RunState {
     pub ultrasonic_cm: Option<u16>,
     /// DHT11 注入环境 (temp°C, hum%)。configure 时置 bridge 默认 (25, 60)。
     pub dht_env: Option<(u8, u8)>,
+    /// 最近发送的红外 NEC 码(bridge `ir` 事件回显)。
+    pub ir_code: Option<u32>,
     /// bridge `hello` 事件宣告的能力(如 "adc" / "serial");老 bridge 不发 hello → 空。
     pub bridge_capabilities: Vec<String>,
     /// bridge 协议版本,来自 `hello`;老 bridge → None。
@@ -138,6 +140,7 @@ impl Default for RunState {
             adc_values: HashMap::new(),
             ultrasonic_cm: None,
             dht_env: None,
+            ir_code: None,
             bridge_capabilities: Vec::new(),
             bridge_protocol: None,
             pwm_trackers: HashMap::new(),
@@ -238,6 +241,8 @@ enum BridgeEvent {
     Adc { t_us: u64, channel: u8, value: u16 },
     #[serde(rename = "dht")]
     Dht { t_us: u64, temp: u8, hum: u8 },
+    #[serde(rename = "ir")]
+    Ir { t_us: u64, code: u32 },
     #[serde(rename = "exit")]
     Exit { state: i32 },
     #[serde(rename = "button")]
@@ -341,6 +346,36 @@ impl RunningSim {
         Ok(())
     }
 
+    /// 向 bridge 声明红外接收头 out 引脚。声明后 bridge 500ms 自发一帧自检码。
+    pub fn configure_ir(&mut self, out: (char, u8)) -> Result<()> {
+        let Some(stdin) = self.stdin.as_mut() else {
+            bail!("bridge stdin not available — cannot configure ir");
+        };
+        writeln!(stdin, "ir {} {}", out.0, out.1)
+            .and_then(|_| stdin.flush())
+            .map_err(|e| anyhow!("write ir command to bridge: {}", e))?;
+        Ok(())
+    }
+
+    /// 发送一帧 NEC 红外码(32 bit)。
+    pub fn send_ir(&mut self, code: u32) -> Result<()> {
+        if let Ok(s) = self.state.lock() {
+            if !s.bridge_capabilities.iter().any(|c| c == "ir") {
+                bail!(
+                    "bridge does not support ir injection (capabilities: {:?}) — rebuild bridge/ (make -C bridge)",
+                    s.bridge_capabilities
+                );
+            }
+        }
+        let Some(stdin) = self.stdin.as_mut() else {
+            bail!("bridge stdin not available — cannot send ir frame");
+        };
+        writeln!(stdin, "irtx {:08X}", code)
+            .and_then(|_| stdin.flush())
+            .map_err(|e| anyhow!("write irtx command to bridge: {}", e))?;
+        Ok(())
+    }
+
     /// 注入超声波距离(2..=400cm,超界截断)。
     pub fn set_distance(&mut self, cm: u16) -> Result<()> {
         if let Ok(s) = self.state.lock() {
@@ -375,6 +410,37 @@ pub fn configure_peripherals(
 ) -> Result<()> {
     configure_ultrasonics(sim, project, spec)?;
     configure_dhts(sim, project, spec)?;
+    configure_irs(sim, project, spec)?;
+    Ok(())
+}
+
+/// 扫 project 里的红外接收头,把 out 引脚经 stdin 下发给 bridge。
+fn configure_irs(
+    sim: &mut RunningSim,
+    project: &crate::project::Project,
+    _spec: &crate::boards::BoardSpec,
+) -> Result<()> {
+    for comp in project.components.iter().filter(|c| c.kind == "ir_receiver") {
+        for (terminal, pin) in
+            crate::components::util::component_terminal_pins(&comp.id, project)
+        {
+            if !matches!(terminal.as_str(), "out" | "data" | "signal") {
+                continue;
+            }
+            let port_bit = match pin {
+                crate::board::PinRef::BoardDigital(n) => {
+                    RunState::arduino_digital_to_port_bit(n)
+                }
+                crate::board::PinRef::BoardAnalog(n) => {
+                    RunState::arduino_analog_to_port_bit(n)
+                }
+                _ => None,
+            };
+            if let Some(p) = port_bit {
+                sim.configure_ir(p)?;
+            }
+        }
+    }
     Ok(())
 }
 
@@ -556,6 +622,10 @@ fn apply_event(
         BridgeEvent::Dht { t_us, temp, hum } => {
             s.last_event_t_us = t_us;
             s.dht_env = Some((temp, hum));
+        }
+        BridgeEvent::Ir { t_us, code } => {
+            s.last_event_t_us = t_us;
+            s.ir_code = Some(code);
         }
         BridgeEvent::Exit { state: exit_state } => {
             s.bridge_exited = true;
