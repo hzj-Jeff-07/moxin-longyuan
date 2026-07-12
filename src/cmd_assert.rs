@@ -2,8 +2,40 @@ use anyhow::{Result, bail};
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
-use crate::boards::board_from_str;
+use crate::boards::{board_from_str, BoardSpec};
 use crate::project::Project;
+use crate::sim::RunState;
+
+/// 把引脚名映射到 bridge 事件 key(`"D:7"` / `"B:5"` / `"GPIO:13"`)。
+/// 返回 `None` = 该引脚在这块板上不可观测。
+///
+/// - 板载 D13 LED:用 spec 声明的 d13 bridge 映射(所有板通用)。
+/// - Arduino 系(uno/nano):Phase 2-mini 起 bridge hook 全部 PORTB/C/D,
+///   所以任意 D0-D13 / A0-A5 都可观测。
+/// - STM32 / gd32:bridge 只上报 D13(GPIO:13),其它引脚不可观测。
+fn bridge_key_for(spec: &BoardSpec, pin_name: &str) -> Option<String> {
+    let p = spec.find_pin(pin_name)?; // 解析别名;未知引脚 → None
+    if p.is_d13_led {
+        return Some(format!("{}:{}", spec.d13_bridge_port, spec.d13_bridge_bit));
+    }
+    if spec.board_id.starts_with("arduino") {
+        // 用规范名(D7 / A0)推导 port:bit,与 apply_event 写入的 key 一致
+        if let Some(rest) = p.name.strip_prefix('D') {
+            if let Ok(n) = rest.parse::<u8>() {
+                if let Some((port, bit)) = RunState::arduino_digital_to_port_bit(n) {
+                    return Some(format!("{}:{}", port, bit));
+                }
+            }
+        } else if let Some(rest) = p.name.strip_prefix('A') {
+            if let Ok(n) = rest.parse::<u8>() {
+                if let Some((port, bit)) = RunState::arduino_analog_to_port_bit(n) {
+                    return Some(format!("{}:{}", port, bit));
+                }
+            }
+        }
+    }
+    None
+}
 
 /// 三种断言模式（A+B 轻量并集）：
 ///   moxin assert --pin D13 --eq HIGH --after 1s
@@ -45,12 +77,9 @@ pub fn cmd_assert(
 
     let result = match mode {
         AssertMode::PinEq { pin_name, expected, after_d } => {
-            let bridge_key = spec.find_pin(&pin_name)
-                .and_then(|p| if p.is_d13_led {
-                    Some(format!("{}:{}", spec.d13_bridge_port, spec.d13_bridge_bit))
-                } else { None })
+            let bridge_key = bridge_key_for(spec, &pin_name)
                 .ok_or_else(|| anyhow::anyhow!(
-                    "pin `{}` is not observable by bridge on board {} (v0.3.0: only D13 LED reports state)",
+                    "pin `{}` is not observable on board {} (Arduino: any D0-D13/A0-A5; STM32/gd32: only the D13 LED)",
                     pin_name, spec.board_id
                 ))?;
             // 等 after_d，然后读一次 pin 状态做相等判断
@@ -63,12 +92,9 @@ pub fn cmd_assert(
             }
         }
         AssertMode::PinToggles { pin_name, within: w } => {
-            let bridge_key = spec.find_pin(&pin_name)
-                .and_then(|p| if p.is_d13_led {
-                    Some(format!("{}:{}", spec.d13_bridge_port, spec.d13_bridge_bit))
-                } else { None })
+            let bridge_key = bridge_key_for(spec, &pin_name)
                 .ok_or_else(|| anyhow::anyhow!(
-                    "pin `{}` is not observable by bridge on board {} (v0.3.0: only D13 LED reports state)",
+                    "pin `{}` is not observable on board {} (Arduino: any D0-D13/A0-A5; STM32/gd32: only the D13 LED)",
                     pin_name, spec.board_id
                 ))?;
             wait_toggle(&mut sim, &bridge_key, w)
@@ -225,6 +251,43 @@ mod tests {
     #[test]
     fn parse_duration_ms() {
         assert_eq!(parse_duration("500ms").unwrap(), Duration::from_millis(500));
+    }
+
+    #[test]
+    fn bridge_key_arduino_all_gpio() {
+        let spec = board_from_str("arduino-uno").unwrap();
+        let s = spec.spec();
+        // D13 走 spec 的 d13 映射(PORTB bit 5)
+        assert_eq!(bridge_key_for(s, "D13").as_deref(), Some("B:5"));
+        // 任意数字引脚:D0-D7 → PORTD,D8-D12 → PORTB
+        assert_eq!(bridge_key_for(s, "D7").as_deref(), Some("D:7"));
+        assert_eq!(bridge_key_for(s, "D2").as_deref(), Some("D:2"));
+        assert_eq!(bridge_key_for(s, "D8").as_deref(), Some("B:0"));
+        // 模拟引脚按 PORTC 数字视角
+        assert_eq!(bridge_key_for(s, "A0").as_deref(), Some("C:0"));
+        assert_eq!(bridge_key_for(s, "A5").as_deref(), Some("C:5"));
+        // 别名也解析
+        assert_eq!(bridge_key_for(s, "pin7").as_deref(), Some("D:7"));
+        // 电源轨不可观测
+        assert!(bridge_key_for(s, "GND").is_none());
+        // 未知引脚
+        assert!(bridge_key_for(s, "D99").is_none());
+    }
+
+    #[test]
+    fn bridge_key_nano_matches_uno() {
+        let spec = board_from_str("arduino-nano").unwrap();
+        assert_eq!(bridge_key_for(spec.spec(), "D7").as_deref(), Some("D:7"));
+    }
+
+    #[test]
+    fn bridge_key_stm32_only_d13() {
+        let spec = board_from_str("stm32").unwrap();
+        let s = spec.spec();
+        // PA13 是板载 LED → GPIO:13
+        assert_eq!(bridge_key_for(s, "PA13").as_deref(), Some("GPIO:13"));
+        // 其它 STM32 引脚不可观测(bridge 只上报 D13)
+        assert!(bridge_key_for(s, "PA0").is_none());
     }
 
     #[test]

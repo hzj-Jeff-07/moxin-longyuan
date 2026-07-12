@@ -133,6 +133,13 @@ jobs:
           ../../target/release/moxin build
           ../../target/release/moxin assert --serial-contains "echo: Z" --send Z --within 5s
 
+      # 非 D13 GPIO 断言:multi-led-chase 持续翻转 D2..D7,断言 D2 翻转
+      - name: Real-sim verify (multi-led-chase, non-D13 pin assert)
+        working-directory: examples/multi-led-chase
+        run: |
+          ../../target/release/moxin build
+          ../../target/release/moxin assert --pin D2 --toggles --within 3s
+
   # 三平台构建二进制
   build:
     name: Build ${{ matrix.target }}
