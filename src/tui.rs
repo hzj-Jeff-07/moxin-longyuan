@@ -162,7 +162,6 @@ struct FrameSnapshot {
     serial_lines: Vec<String>,   // 最近 N 行原始 line(已截掉 t_us)
     inspector_lines: Vec<InspectorLine>,
     inspector_status: InspectorStatus,
-    serial_supported: bool,
     status_text: &'static str,
     status_color: Color,
 }
@@ -173,7 +172,6 @@ fn build_snapshot(
 ) -> FrameSnapshot {
     let project = &shell.project;
     let spec = shell.board.spec();
-    let serial_supported = true; // all boards support serial monitor
     let inspector = StubInspector;
 
     let (title, board_lines, serial_lines, inspector_lines, inspector_status, status_text, status_color) =
@@ -184,7 +182,7 @@ fn build_snapshot(
                     let board_lines = crate::render::render_project_styled(project, spec);
                     let idle = RunState::default();
                     let (insp_lines, insp_status) = inspector.inspect(project, &idle);
-                    return FrameSnapshot { title, board_lines, serial_lines: vec![], inspector_lines: insp_lines, inspector_status: insp_status, serial_supported, status_text: "(state unavailable)", status_color: Color::DarkGray };
+                    return FrameSnapshot { title, board_lines, serial_lines: vec![], inspector_lines: insp_lines, inspector_status: insp_status, status_text: "(state unavailable)", status_color: Color::DarkGray };
                 };
                 let title = format!(
                     "{} · {} · t={:06.3}s",
@@ -233,19 +231,12 @@ fn build_snapshot(
         serial_lines,
         inspector_lines,
         inspector_status,
-        serial_supported,
         status_text,
         status_color,
     }
 }
 
 fn render_serial_lines(snap: &FrameSnapshot, area: Rect) -> Vec<Line<'static>> {
-    if !snap.serial_supported {
-        return vec![Line::from(vec![Span::styled(
-            "(serial monitor unavailable for arduino-uno in v2a)".to_string(),
-            Style::default().fg(Color::DarkGray),
-        )])];
-    }
     if snap.serial_lines.is_empty() {
         return vec![Line::from(vec![Span::styled(
             "(waiting for serial output)".to_string(),
