@@ -177,10 +177,22 @@ cargo test 177 / 元件 14 种 / examples 17。真机 e2e 靠 CI 新增的 dht11
 固件校验每次 `endTransmission` 的 ACK,全部成功才打 `lcd ok` →
 CI 关卡 `assert --serial-contains "lcd ok"`(从机不 ACK 即失败,真 e2e)。
 
-### 11. OLED SSD1306 — 待 LCD 落地后再细化
+### 11. OLED SSD1306 — ✅ 完成(2026-07-12,任务书最后一件)
 
-- 同为 TWI 从机,但要解析 SSD1306 命令流 + 128×64 帧缓冲,
-  TUI 侧盲文点阵(⣿)降采样渲染;等 LCD 验证 TWI hook 可靠后动工
+- 复用 LCD 验证过的 TWI 从机骨架,按 START 地址分派;控制字节 bit6=D/C#
+  分命令/数据流,水平寻址窗口(0x21/0x22)跟踪,128×64 帧缓冲按 (page,col) 写入
+- 帧缓冲降采样成盲文(2×4 像素/格 → 64 列×16 行)以 oled 事件发回;
+  元件显示亮像素统计 + 最密行预览(单 Line 约束,完整帧存 RunState.oled)
+- example `oled-hello`(裸 Wire.h 手写 SSD1306 驱动);CI 加 `oled ok` 关卡
+
+---
+
+## 批次 B 完工总结(2026-07-12)
+
+- 完成:DHT11 / 红外 NEC / LCD1602 / OLED SSD1306(4 件)
+- 豁免:STM32F103(QEMU 无真机型,书面豁免)
+- **任务书 13 件外设:完成 10 件 + 豁免 3 件(ESP32/Pico/F103),100% 处置**
+- v0.7.0:元件 16 种、板 4 块、examples 20 个、cargo test 189、CI 七道真机关卡
 
 ## 四、测试与质量线
 

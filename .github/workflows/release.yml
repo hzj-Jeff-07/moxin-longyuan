@@ -119,6 +119,13 @@ jobs:
           ../../target/release/moxin build
           ../../target/release/moxin assert --serial-contains "lcd ok" --within 5s
 
+      # v0.7.0 起:验证 OLED SSD1306 TWI 从机(命令流 + 1024 字节数据全 ACK)
+      - name: Real-sim verify (oled-hello, SSD1306 TWI slave)
+        working-directory: examples/oled-hello
+        run: |
+          ../../target/release/moxin build
+          ../../target/release/moxin assert --serial-contains "oled ok" --within 5s
+
   # 三平台构建二进制
   build:
     name: Build ${{ matrix.target }}

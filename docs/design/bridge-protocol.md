@@ -78,6 +78,19 @@ lcd <hex_addr>
   P4-7=data; single-nibble init handled) and emits throttled `lcd`
   events. Read transfers are not ACKed (backpack is write-only here).
 
+### oled (v0.7.0)
+```
+oled <hex_addr>
+```
+- Enables the SSD1306 OLED I2C slave at the given 7-bit address
+  (conventionally 3C). Auto-sent by moxin when the project has an
+  `oled_ssd1306` component. The slave parses the control byte (bit6=D/C#)
+  to split command vs data streams, tracks the horizontal-addressing
+  window (0x21 column, 0x22 page), writes data bytes into a 128x64
+  framebuffer (col auto-increment, page wrap), and emits throttled
+  `oled` events with a braille-downsampled frame. Read transfers are not
+  ACKed.
+
 ### irtx (v0.7.0)
 ```
 irtx <hex32>
@@ -91,7 +104,7 @@ irtx <hex32>
 ## Events
 
 ### hello (protocol ≥1, AVR bridge)
-{"event":"hello","protocol":"1","capabilities":["adc","serial","sr04","dht","ir","lcd"]}
+{"event":"hello","protocol":"1","capabilities":["adc","serial","sr04","dht","ir","lcd","oled"]}
 Emitted once, before `ready`. Rust side stores capabilities;
 `RunningSim::set_adc` refuses when "adc" is absent (old bridge → clear error
 instead of a silently dropped command).
@@ -136,6 +149,12 @@ Rust side updates `RunState.ir_code`.
 Visible 16x2 window of the HD44780 DDRAM, emitted at most every ~30ms
 while dirty (per-nibble I2C transactions would flood otherwise).
 Rust side updates `RunState.lcd`.
+
+### oled (v0.7.0, AVR bridge)
+{"event":"oled","t_us":<us>,"rows":["<64 braille>", ...16 rows]}
+Braille-downsampled 128x64 framebuffer (2x4 px per cell → 64 cols x 16
+rows), emitted at most every ~40ms while dirty. Rust side updates
+`RunState.oled`.
 
 ### button
 {"event":"button","t_us":<us>,"pressed":true|false}
