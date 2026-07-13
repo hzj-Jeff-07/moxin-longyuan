@@ -2,11 +2,13 @@ mod board;
 mod boards;
 mod cmd_assert;
 mod cmd_doctor;
+mod cmd_explain;
 mod cmd_install;
 mod cmd_new;
 mod cmd_status;
 mod components;
 mod inspector;
+mod llm;
 mod mcp;
 mod project;
 mod render;
@@ -51,6 +53,8 @@ enum Cmd {
     Doctor,
     /// 启动 MCP server(stdio),让 AI Agent 直接调用 MoXin 作为 tool
     Mcp,
+    /// AI Inspector:把最近状态快照喂给 LLM,打印分析(需 MOXIN_LLM_API_KEY)
+    Explain,
     /// 将 moxin 安装到 PATH
     Install,
     /// 查询引脚状态
@@ -118,6 +122,7 @@ fn main() -> Result<ExitCode> {
             mcp::cmd_mcp()?;
             Ok(ExitCode::SUCCESS)
         }
+        Cmd::Explain => cmd_explain::cmd_explain(),
         Cmd::Install => {
             cmd_install::cmd_install()?;
             Ok(ExitCode::SUCCESS)

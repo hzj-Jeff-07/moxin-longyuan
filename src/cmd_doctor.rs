@@ -53,6 +53,23 @@ fn hint_simavr() -> &'static str { "apt install simavr" }
 #[cfg(target_os = "windows")]
 fn hint_simavr() -> &'static str { "no native Windows package — use WSL (apt install simavr) or build via MSYS2: https://github.com/buserror/simavr" }
 
+/// AI Inspector 的 LLM 依赖是**可选**的:未启用时不影响 doctor 结果,只提示。
+/// 用 ○ 表示"可选、未配置",区别于必需依赖缺失的 ✗。密钥只报"是否设置",绝不打印值。
+fn print_llm_section() {
+    println!("\nAI Inspector (optional — LLM via curl):");
+    if crate::llm::curl_available() {
+        println!("  \x1b[32m✓\x1b[0m  {:<22} available", "curl");
+    } else {
+        println!("  \x1b[36m○\x1b[0m  {:<22} not found (needed only for `moxin explain`)", "curl");
+    }
+    let cfg = crate::llm::LlmConfig::from_process_env();
+    if cfg.is_enabled() {
+        println!("  \x1b[32m✓\x1b[0m  {:<22} set (model: {})", "MOXIN_LLM_API_KEY", cfg.model);
+    } else {
+        println!("  \x1b[36m○\x1b[0m  {:<22} unset — LLM features disabled", "MOXIN_LLM_API_KEY");
+    }
+}
+
 pub fn cmd_doctor() -> anyhow::Result<()> {
     let mut all_ok = true;
 
@@ -95,6 +112,9 @@ pub fn cmd_doctor() -> anyhow::Result<()> {
             }
         }
     }
+
+    // AI Inspector (LLM,可选) —— 默认关闭,缺失不算 doctor 失败,只做提示。
+    print_llm_section();
 
     if all_ok {
         println!("\nAll checks passed.");

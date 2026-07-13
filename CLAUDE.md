@@ -42,6 +42,13 @@
   10 tools(board_info/list_components/describe_project/read_state/build/run/stop/sim_state/inject/assert)
   + 1 resource(moxin://state),Session 持有 RunningSim,见 `docs/design/v3-mcp-rfc.md`。
   v3.1.0 补 assert tool(PASS/FAIL/TIMEOUT),判定逻辑 `cmd_assert::evaluate` 与 CLI 共用。
+- AI Inspector 接真 LLM:v3.2.0 完工 M1+M3(用户授权 2026-07-13),`moxin explain` 读
+  `.moxin-state.json` → prompt → LLM → 打印分析。**shell-out 到 curl,不引 HTTP crate**
+  (守依赖锁,同 simavr/qemu 外部运行时);密钥只从 `MOXIN_LLM_API_KEY` env 读,经 `curl -K`
+  配置文件传(不进 argv、0600 用后即删),默认关闭(未设 key 零行为变化)。`src/llm.rs`
+  (纯函数 build_prompt/build_request_body/parse_answer + call_llm)+ `src/cmd_explain.rs`,
+  见 `docs/design/v3.2-ai-inspector-rfc.md`。**M2(TUI 实时 LLM 面板)留后续**;
+  build_prompt 收 JSON snapshot Value(非 RunState),实时/落盘两路共用。
   **手写 JSON-RPC,不引 SDK/新 crate**;run 必须 json_out=false(仿真事件不能污染
   MCP 的 stdout JSON-RPC 通道);剩 tag v3.0.0(需用户本地推)
 - 不改 `bridge/*.c`,除非用户明确同意(phase-2-full RFC 已默认同意 ADC/stdin 通道改动,动手前仍再确认一次)

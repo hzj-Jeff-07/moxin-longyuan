@@ -152,6 +152,25 @@ jobs:
       - name: MCP e2e (drive adc-potentiometer via MCP)
         run: python3 scripts/mcp_smoke.py ./target/release/moxin examples/adc-potentiometer
 
+      # v3.2:AI Inspector `moxin explain` shell-out 闭环(假 curl 冒充 LLM,不打真 API)
+      - name: AI Inspector explain (fake-curl shell-out)
+        working-directory: examples/adc-potentiometer
+        run: |
+          mkdir -p fakebin build
+          cat > fakebin/curl <<'SH'
+          #!/bin/bash
+          if [ "$1" = "--version" ]; then echo "curl 8.0.0 (fake)"; exit 0; fi
+          cat >/dev/null   # drain request body from stdin
+          printf '%s' '{"content":[{"type":"text","text":"D13 blink loop, no anomalies."}]}'
+          SH
+          chmod +x fakebin/curl
+          echo '{"ready":true,"mcu":"atmega328p","pin_states":{"B:5":1}}' > build/.moxin-state.json
+          OUT=$(PATH="$PWD/fakebin:$PATH" MOXIN_LLM_API_KEY=sk-fake ../../target/release/moxin explain)
+          echo "explain output: $OUT"
+          echo "$OUT" | grep -q "no anomalies" || { echo "explain shell-out failed"; exit 1; }
+          # 未设 key 时必须默认关闭(不发请求,给指引,exit 0)
+          env -u MOXIN_LLM_API_KEY ../../target/release/moxin explain | grep -q "未启用"
+
   # 三平台构建二进制
   build:
     name: Build ${{ matrix.target }}
