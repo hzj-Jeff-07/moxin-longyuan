@@ -148,6 +148,10 @@ jobs:
           ../../target/release/moxin build
           ../../target/release/moxin assert --pin D2 --toggles --within 3s
 
+      # v3 M2:AI 经 MCP 端到端驱动仿真(build → run → inject adc → sim_state)
+      - name: MCP e2e (drive adc-potentiometer via MCP)
+        run: python3 scripts/mcp_smoke.py ./target/release/moxin examples/adc-potentiometer
+
   # 三平台构建二进制
   build:
     name: Build ${{ matrix.target }}

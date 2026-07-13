@@ -38,8 +38,10 @@
 - 不加 ESP32 / RP2040(主线 QEMU/simavr 无现成机型;Nano 已于 Phase 3 解禁,同 ATmega328P 复用 simavr bridge)
 - 不加 I2C / SPI / OLED / LCD1602 / DHT11(留 Phase 3 / v0.6.0)
 - 不做 GUI / Tauri / Web 前端
-- MCP server:v3 已启动(用户授权,2026-07-12),`moxin mcp` 走 stdio JSON-RPC;
-  M1 只读 tools 已落地,见 `docs/design/v3-mcp-rfc.md`。**手写 JSON-RPC,不引 SDK/新 crate**
+- MCP server:v3 进行中(用户授权,2026-07-12),`moxin mcp` 走 stdio JSON-RPC;
+  M1 只读 + M2 有状态 tools(build/run/stop/sim_state/inject,Session 持有 RunningSim)已落地,
+  见 `docs/design/v3-mcp-rfc.md`。**手写 JSON-RPC,不引 SDK/新 crate**;
+  run 必须 json_out=false(仿真事件不能污染 MCP 的 stdout JSON-RPC 通道)
 - 不改 `bridge/*.c`,除非用户明确同意(phase-2-full RFC 已默认同意 ADC/stdin 通道改动,动手前仍再确认一次)
 - 不改 `SCHEMA_VERSION`(当前 `"0.2"`;Phase 3 撑不住再升 0.3,见 RFC 决策记录)
 - 不改 `LICENSE`(BUSL-1.1)
