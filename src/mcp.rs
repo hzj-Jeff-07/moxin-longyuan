@@ -80,12 +80,14 @@ pub fn handle_request(req: &Value, session: &mut Session) -> Option<Value> {
     let result = match method {
         "initialize" => Ok(json!({
             "protocolVersion": PROTOCOL_VERSION,
-            "capabilities": { "tools": {} },
+            "capabilities": { "tools": {}, "resources": {} },
             "serverInfo": { "name": SERVER_NAME, "version": env!("CARGO_PKG_VERSION") }
         })),
         "ping" => Ok(json!({})),
         "tools/list" => Ok(json!({ "tools": tool_specs() })),
         "tools/call" => call_tool(req.get("params"), session),
+        "resources/list" => Ok(json!({ "resources": resource_specs() })),
+        "resources/read" => read_resource(req.get("params"), session),
         other => {
             return Some(error_response(
                 id,
@@ -183,6 +185,44 @@ fn tool_specs() -> Value {
             }
         }
     ])
+}
+
+/// MCP resources:把仿真状态暴露成可寻址 resource(与 tools 互补,方便订阅式客户端)。
+fn resource_specs() -> Value {
+    json!([
+        {
+            "uri": "moxin://state",
+            "name": "MoXin simulator state",
+            "description": "Live all-peripheral snapshot of the running sim, or the last .moxin-state.json.",
+            "mimeType": "application/json"
+        }
+    ])
+}
+
+fn read_resource(params: Option<&Value>, session: &Session) -> std::result::Result<Value, String> {
+    let uri = params
+        .and_then(|p| p.get("uri"))
+        .and_then(|u| u.as_str())
+        .ok_or_else(|| "resources/read requires `uri`".to_string())?;
+    if uri != "moxin://state" {
+        return Err(format!("unknown resource: {}", uri));
+    }
+    // 优先运行中仿真的实时快照;否则回退到 cwd 项目的 .moxin-state.json
+    let text = if let Some(sim) = session.sim.as_ref() {
+        let s = sim.state.lock().map_err(|_| "state lock poisoned".to_string())?;
+        serde_json::to_string_pretty(&s.to_json()).unwrap_or_default()
+    } else {
+        let root = std::env::current_dir()
+            .ok()
+            .and_then(|cwd| crate::project::Project::find_project_root(&cwd).ok())
+            .ok_or_else(|| "no running sim and no project in cwd".to_string())?;
+        let path = root.join("build").join(".moxin-state.json");
+        std::fs::read_to_string(&path)
+            .map_err(|_| format!("no state at {} — run first", path.display()))?
+    };
+    Ok(json!({
+        "contents": [{ "uri": uri, "mimeType": "application/json", "text": text }]
+    }))
 }
 
 /// tools/call 分派。成功 → MCP content 结果;工具内部错误 → isError 文本(不是协议错误)。
@@ -419,6 +459,22 @@ mod tests {
         assert_eq!(resp["result"]["protocolVersion"], PROTOCOL_VERSION);
         assert_eq!(resp["result"]["serverInfo"]["name"], "moxin");
         assert!(resp["result"]["capabilities"]["tools"].is_object());
+        assert!(resp["result"]["capabilities"]["resources"].is_object());
+    }
+
+    #[test]
+    fn resources_list_exposes_state() {
+        let resp = call("resources/list", json!({}));
+        let res = resp["result"]["resources"].as_array().unwrap();
+        assert_eq!(res.len(), 1);
+        assert_eq!(res[0]["uri"], "moxin://state");
+    }
+
+    #[test]
+    fn resources_read_unknown_uri_errors() {
+        let resp = call("resources/read", json!({ "uri": "moxin://nope" }));
+        // unknown resource → call_tool 路径外,走 handle_request 的 Err → -32603
+        assert_eq!(resp["error"]["code"], -32603);
     }
 
     #[test]

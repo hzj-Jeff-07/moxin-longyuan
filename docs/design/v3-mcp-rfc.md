@@ -109,7 +109,11 @@ fn tool_board_info(args) -> Result<String> { ... }
 - [x] M2:有状态 tools(build/run/stop/sim_state/inject)+ Session 会话状态 +
       MCP e2e CI 关卡(scripts/mcp_smoke.py 驱动 adc-potentiometer 闭环)(2026-07-12)
       注:assert-via-MCP 折进 M3(现可用 read_state/sim_state + inject 组合断言)
-- [ ] M3:resources + example MCP client 配置 + README + tag v3.0.0
+- [x] M3:resources(moxin://state)+ docs/mcp-client 客户端配置 + README MCP 章节
+      + 版本号 3.0.0 + RELEASE_NOTES(2026-07-12);tag `v3.0.0` 待用户授权
+
+**v3 完工(代码,2026-07-12)**:cargo test 213 / clippy 0 / 9 tools + 1 resource /
+CI 十道真机关卡 + MCP 协议冒烟 + MCP e2e。剩 tag v3.0.0(需用户本地推)。
 
 ---
 

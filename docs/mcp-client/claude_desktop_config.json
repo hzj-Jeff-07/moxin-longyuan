@@ -1,0 +1,11 @@
+{
+  "//": "把 MoXin 接入 Claude Desktop 等 MCP 客户端。放到客户端的 MCP 配置里,",
+  "//2": "把 command 换成你机器上 moxin 二进制的绝对路径。启动后 AI 就能调用",
+  "//3": "board_info / describe_project / build / run / inject / sim_state / read_state 等 tool。",
+  "mcpServers": {
+    "moxin": {
+      "command": "/absolute/path/to/moxin",
+      "args": ["mcp"]
+    }
+  }
+}
