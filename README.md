@@ -150,8 +150,9 @@ moxin explain                        # 打印 LLM 对当前状态的分析
   不落盘长存、不入库、不进日志；prompt 里只有硬件状态，无源码外泄。
 - `moxin doctor` 会报 curl 是否可用、`MOXIN_LLM_API_KEY` 是否设置（只报是否设置，不打印值）。
 
-> TUI 面板里的实时 LLM 解读（边跑边问）是下一步（v3.2 RFC 的 M2）；当前先提供一次性的
-> `explain`。设计与安全细节见 `docs/design/v3.2-ai-inspector-rfc.md`。
+TUI 里也能实时问:`moxin shell` → `run` 进四面板后按 **`Ctrl+E`**,AI Inspector 面板会
+调 LLM 解读当前状态(后台线程,不卡界面;analyzing… → 结果 / 出错降级)。同样默认关闭。
+设计与安全细节见 `docs/design/v3.2-ai-inspector-rfc.md`。
 
 同时 `run --output json` 会把**完整状态快照**落盘到 `build/.moxin-state.json`，
 供 `moxin status` 和 AI Agent 按需读取。快照含全部外设的当前状态，而不只是 GPIO：
@@ -204,7 +205,7 @@ src/               Rust 主程序
 ## 已知限制
 
 - Arduino Uno/Nano 需要额外安装 simavr;传感器/显示屏外设(ADC/超声波/DHT11/红外/I2C/serial 事件)需要用本仓库源码重编 bridge(`make -C bridge`,老 bridge 二进制会被明确报错提示)
-- AI Inspector:一次性 `moxin explain` 已接真 LLM(shell-out curl,默认关闭);TUI 面板里的实时 LLM 解读留 v3.2 M2
+- AI Inspector:一次性 `moxin explain` + TUI 面板 `Ctrl+E` 实时解读均已接真 LLM(shell-out curl,后台非阻塞,默认关闭)
 - 注入类量(ADC/距离/温湿度/红外码)来自命令/旋钮,不是电路级仿真;PWM 是 Rust 侧边沿推导,duty 到 0/255 时回退 ON/OFF 显示
 - 全部传感器/显示屏外设仅 AVR 板(Uno/Nano);STM32 只支持 GPIO/UART
 - STM32F103 / ESP32 / Pico 不做:主线 QEMU/simavr 无对应真机型(书面豁免,见 phase-3 RFC)

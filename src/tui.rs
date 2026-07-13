@@ -24,16 +24,131 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 use std::io;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::board::PinRef;
 use crate::boards::BoardSpec;
+use crate::llm::{self, LlmConfig};
 use crate::sim::RunState;
 use crate::inspector::{Inspector, InspectorLine, InspectorStatus, StubInspector};
 use crate::project::Project;
 
 const TOAST_TTL: Duration = Duration::from_secs(2);
 const NARROW_WIDTH_THRESHOLD: u16 = 80;
+
+/// AI Inspector 面板里 LLM 解读的实时状态(v3.2 M2)。后台 worker 线程写,渲染读。
+enum LlmPanel {
+    /// 未设 MOXIN_LLM_API_KEY —— LLM 功能关闭
+    Disabled,
+    /// 已启用,尚未问过
+    Idle,
+    /// 请求在途(渲染显示 analyzing…)
+    Pending,
+    /// 最近一次分析结果
+    Ready(String),
+    /// 最近一次错误(curl 缺失 / 网络 / API 报错)
+    Error(String),
+}
+
+/// 触发一次 LLM 解读:置 Pending,后台线程跑 curl,回来写结果。**不阻塞渲染**。
+/// 已在 Pending 时直接返回(不并发打多次)。
+fn trigger_llm(shared: &Arc<Mutex<LlmPanel>>, cfg: LlmConfig, project: Project, snapshot: serde_json::Value) {
+    {
+        let mut p = match shared.lock() {
+            Ok(g) => g,
+            Err(_) => return,
+        };
+        if matches!(*p, LlmPanel::Pending) {
+            return;
+        }
+        *p = LlmPanel::Pending;
+    }
+    let shared = Arc::clone(shared);
+    std::thread::spawn(move || {
+        let prompt = llm::build_prompt(&project, &snapshot);
+        let body = llm::build_request_body(&cfg.model, &prompt);
+        let result = llm::call_llm(&cfg, &body);
+        if let Ok(mut p) = shared.lock() {
+            *p = match result {
+                Ok(ans) => LlmPanel::Ready(ans),
+                Err(e) => LlmPanel::Error(e.to_string()),
+            };
+        }
+    });
+}
+
+/// Ctrl+E 入口:从运行中的仿真取当前状态快照,触发 LLM 解读。返回给用户的 toast。
+fn trigger_llm_from_tui(
+    shell: &crate::shell::Shell,
+    cfg: &LlmConfig,
+    panel: &Arc<Mutex<LlmPanel>>,
+) -> (String, Instant, Severity) {
+    if !cfg.is_enabled() {
+        return (
+            "set MOXIN_LLM_API_KEY to enable AI explain".to_string(),
+            Instant::now(),
+            Severity::Error,
+        );
+    }
+    let snapshot = shell
+        .running
+        .as_ref()
+        .and_then(|sim| sim.state.lock().ok().map(|s| s.to_json()));
+    match snapshot {
+        Some(snap_json) => {
+            trigger_llm(panel, cfg.clone(), shell.project.clone(), snap_json);
+            ("asking LLM…".to_string(), Instant::now(), Severity::Success)
+        }
+        None => (
+            "run the sim first, then Ctrl+E to explain".to_string(),
+            Instant::now(),
+            Severity::Error,
+        ),
+    }
+}
+
+/// 把 LLM 面板状态渲染成 AI Inspector 底部的若干行(owned,可在 draw 闭包外先算好)。
+fn render_llm_panel(panel: &LlmPanel) -> Vec<Line<'static>> {
+    let mut lines = vec![Line::from("")];
+    match panel {
+        LlmPanel::Disabled => {
+            lines.push(Line::from(Span::styled(
+                "LLM: off (set MOXIN_LLM_API_KEY)".to_string(),
+                Style::default().fg(Color::DarkGray),
+            )));
+        }
+        LlmPanel::Idle => {
+            lines.push(Line::from(Span::styled(
+                "LLM: Ctrl+E to ask".to_string(),
+                Style::default().fg(Color::Rgb(120, 200, 255)),
+            )));
+        }
+        LlmPanel::Pending => {
+            lines.push(Line::from(Span::styled(
+                "LLM: analyzing…".to_string(),
+                Style::default().fg(Color::Rgb(255, 200, 40)),
+            )));
+        }
+        LlmPanel::Ready(answer) => {
+            lines.push(Line::from(Span::styled(
+                "LLM analysis (Ctrl+E refresh):".to_string(),
+                Style::default().fg(Color::Rgb(40, 220, 80)),
+            )));
+            for l in answer.lines() {
+                lines.push(Line::from(l.to_string()));
+            }
+        }
+        LlmPanel::Error(e) => {
+            lines.push(Line::from(Span::styled(
+                "LLM error (Ctrl+E retry):".to_string(),
+                Style::default().fg(Color::Rgb(255, 80, 80)),
+            )));
+            lines.push(Line::from(e.clone()));
+        }
+    }
+    lines
+}
 
 struct TerminalGuard;
 
@@ -356,6 +471,13 @@ pub fn run(shell: &mut crate::shell::Shell) -> Result<()> {
     let mut last_message: Option<(String, Instant, Severity)> = None;
     // Tab 聚焦的电位器 id(None = 无聚焦,方向键不拦截)
     let mut knob_focus: Option<String> = None;
+    // AI Inspector 的 LLM 面板(v3.2 M2):后台 worker 写、渲染读,非阻塞
+    let llm_cfg = LlmConfig::from_process_env();
+    let llm_panel = Arc::new(Mutex::new(if llm_cfg.is_enabled() {
+        LlmPanel::Idle
+    } else {
+        LlmPanel::Disabled
+    }));
 
     loop {
         if let Some((_, ts, _)) = last_message.as_ref() {
@@ -365,6 +487,11 @@ pub fn run(shell: &mut crate::shell::Shell) -> Result<()> {
         }
 
         let snap = build_snapshot(shell, &last_message);
+        // 读一次 LLM 面板状态,渲染成 owned 行(draw 闭包外先算,闭包里只 clone)
+        let llm_lines = match llm_panel.lock() {
+            Ok(p) => render_llm_panel(&p),
+            Err(_) => Vec::new(),
+        };
 
         terminal
             .draw(|frame| {
@@ -441,7 +568,8 @@ pub fn run(shell: &mut crate::shell::Shell) -> Result<()> {
                     let insp_block = Block::default()
                         .title("[AI Inspector]")
                         .borders(Borders::ALL);
-                    let insp_render = render_inspector(&snap);
+                    let mut insp_render = render_inspector(&snap);
+                    insp_render.extend(llm_lines.iter().cloned());
                     frame.render_widget(
                         Paragraph::new(insp_render).block(insp_block),
                         right,
@@ -548,6 +676,10 @@ pub fn run(shell: &mut crate::shell::Shell) -> Result<()> {
                         let alt = key.modifiers.contains(KeyModifiers::ALT);
                         if ctrl && (c == 'c' || c == 'C') {
                             input.clear();
+                        } else if ctrl && (c == 'e' || c == 'E') {
+                            // Ctrl+E:触发一次 LLM 解读(后台线程,非阻塞)
+                            let msg = trigger_llm_from_tui(shell, &llm_cfg, &llm_panel);
+                            last_message = Some(msg);
                         } else if !ctrl && !alt {
                             // 仿真运行 + 输入条为空时,按键作为串口 RX 注入固件
                             // (走 bridge `serial` 命令,老版本的裸字节写 stdin 会被当命令行丢弃)。
@@ -574,3 +706,45 @@ pub fn run(shell: &mut crate::shell::Shell) -> Result<()> {
 // (Reserved for future direct project access in TUI; harmless.)
 #[allow(dead_code)]
 fn _project_marker(_p: &Project) {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 提取一行里所有 span 的文本(便于断言渲染内容)。
+    fn line_text(line: &Line) -> String {
+        line.spans.iter().map(|s| s.content.as_ref()).collect()
+    }
+
+    #[test]
+    fn llm_panel_disabled_shows_hint() {
+        let lines = render_llm_panel(&LlmPanel::Disabled);
+        let joined: String = lines.iter().map(line_text).collect::<Vec<_>>().join("\n");
+        assert!(joined.contains("MOXIN_LLM_API_KEY"), "got: {joined}");
+    }
+
+    #[test]
+    fn llm_panel_idle_and_pending_have_states() {
+        assert!(render_llm_panel(&LlmPanel::Idle)
+            .iter()
+            .any(|l| line_text(l).contains("Ctrl+E")));
+        assert!(render_llm_panel(&LlmPanel::Pending)
+            .iter()
+            .any(|l| line_text(l).contains("analyzing")));
+    }
+
+    #[test]
+    fn llm_panel_ready_renders_each_answer_line() {
+        let lines = render_llm_panel(&LlmPanel::Ready("first line\nsecond line".to_string()));
+        let joined: String = lines.iter().map(line_text).collect::<Vec<_>>().join("\n");
+        assert!(joined.contains("first line"), "got: {joined}");
+        assert!(joined.contains("second line"), "got: {joined}");
+    }
+
+    #[test]
+    fn llm_panel_error_surfaces_message() {
+        let lines = render_llm_panel(&LlmPanel::Error("curl not found".to_string()));
+        let joined: String = lines.iter().map(line_text).collect::<Vec<_>>().join("\n");
+        assert!(joined.contains("curl not found"), "got: {joined}");
+    }
+}

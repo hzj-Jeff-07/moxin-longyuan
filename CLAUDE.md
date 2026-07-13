@@ -47,8 +47,10 @@
   (守依赖锁,同 simavr/qemu 外部运行时);密钥只从 `MOXIN_LLM_API_KEY` env 读,经 `curl -K`
   配置文件传(不进 argv、0600 用后即删),默认关闭(未设 key 零行为变化)。`src/llm.rs`
   (纯函数 build_prompt/build_request_body/parse_answer + call_llm)+ `src/cmd_explain.rs`,
-  见 `docs/design/v3.2-ai-inspector-rfc.md`。**M2(TUI 实时 LLM 面板)留后续**;
-  build_prompt 收 JSON snapshot Value(非 RunState),实时/落盘两路共用。
+  见 `docs/design/v3.2-ai-inspector-rfc.md`;build_prompt 收 JSON snapshot Value(非 RunState),
+  实时/落盘两路共用。v3.3.0 补 M2:TUI 里 `Ctrl+E` 触发实时 LLM 解读,后台 worker 线程跑
+  curl + `Arc<Mutex<LlmPanel>>` 缓存(Disabled/Idle/Pending/Ready/Error 状态机),渲染每帧读、
+  **非阻塞**,失败降级。至此 AI Inspector 三里程碑(M1+M2+M3)全部完成。
   **手写 JSON-RPC,不引 SDK/新 crate**;run 必须 json_out=false(仿真事件不能污染
   MCP 的 stdout JSON-RPC 通道);剩 tag v3.0.0(需用户本地推)
 - 不改 `bridge/*.c`,除非用户明确同意(phase-2-full RFC 已默认同意 ADC/stdin 通道改动,动手前仍再确认一次)
