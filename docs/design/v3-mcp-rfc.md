@@ -115,6 +115,11 @@ fn tool_board_info(args) -> Result<String> { ... }
 **v3 完工(代码,2026-07-12)**:cargo test 213 / clippy 0 / 9 tools + 1 resource /
 CI 十道真机关卡 + MCP 协议冒烟 + MCP e2e。剩 tag v3.0.0(需用户本地推)。
 
+**v3.1.0(2026-07-13)**:补 `assert` tool(第 10 个),补齐 MCP↔CLI 断言能力对等——
+AI Agent 拿到 PASS/FAIL/TIMEOUT 判定,不必再自己轮询 `sim_state` 推理。判定逻辑
+从 `cmd_assert` 抽出 `pub(crate) fn evaluate(sim, spec, mode)`,CLI 与 MCP 共用;
+MCP e2e 关卡追加一次 `assert{serial_contains:"A0="}`。cargo test 214 / clippy 0。
+
 ---
 
 ## 六、决策记录
@@ -124,5 +129,6 @@ CI 十道真机关卡 + MCP 协议冒烟 + MCP e2e。剩 tag v3.0.0(需用户本
 | 2026-07-12 | 启动 v3,MCP server 从禁区解锁 | 用户明确授权做下一个大版本;MCP 是 CLAUDE.md 标注的 v3 头牌 |
 | 2026-07-12 | 手写 JSON-RPC,不引 MCP SDK | 守依赖锁;协议简单 serde_json 够用 |
 | 2026-07-12 | M1 先只读,可纯单测 | 先验证协议骨架可靠,再接有状态/需 simavr 的 tools |
+| 2026-07-13 | 补 `assert` tool(v3.1.0),不再"视需求再加" | AI Agent 需要 pass/fail 判定原语;判定逻辑从 cmd_assert 抽出复用,零重复;补齐 MCP↔CLI 对等 |
 
 后续决策追加在此表底部。

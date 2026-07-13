@@ -39,8 +39,9 @@
 - 不加 I2C / SPI / OLED / LCD1602 / DHT11(留 Phase 3 / v0.6.0)
 - 不做 GUI / Tauri / Web 前端
 - MCP server:v3 完工(代码,用户授权 2026-07-12),`moxin mcp` 走 stdio JSON-RPC;
-  9 tools(board_info/list_components/describe_project/read_state/build/run/stop/sim_state/inject)
+  10 tools(board_info/list_components/describe_project/read_state/build/run/stop/sim_state/inject/assert)
   + 1 resource(moxin://state),Session 持有 RunningSim,见 `docs/design/v3-mcp-rfc.md`。
+  v3.1.0 补 assert tool(PASS/FAIL/TIMEOUT),判定逻辑 `cmd_assert::evaluate` 与 CLI 共用。
   **手写 JSON-RPC,不引 SDK/新 crate**;run 必须 json_out=false(仿真事件不能污染
   MCP 的 stdout JSON-RPC 通道);剩 tag v3.0.0(需用户本地推)
 - 不改 `bridge/*.c`,除非用户明确同意(phase-2-full RFC 已默认同意 ADC/stdin 通道改动,动手前仍再确认一次)

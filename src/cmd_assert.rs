@@ -75,34 +75,7 @@ pub fn cmd_assert(
         sim.send_serial(text)?;
     }
 
-    let result = match mode {
-        AssertMode::PinEq { pin_name, expected, after_d } => {
-            let bridge_key = bridge_key_for(spec, &pin_name)
-                .ok_or_else(|| anyhow::anyhow!(
-                    "pin `{}` is not observable on board {} (Arduino: any D0-D13/A0-A5; STM32/gd32: only the D13 LED)",
-                    pin_name, spec.board_id
-                ))?;
-            // 等 after_d，然后读一次 pin 状态做相等判断
-            std::thread::sleep(after_d);
-            let level = read_pin(&sim, &bridge_key);
-            match (level, expected) {
-                (Some(true), PinLevel::High) | (Some(false), PinLevel::Low) => AssertResult::Pass,
-                (Some(_), _) => AssertResult::Fail,
-                (None, _) => AssertResult::Timeout,
-            }
-        }
-        AssertMode::PinToggles { pin_name, within: w } => {
-            let bridge_key = bridge_key_for(spec, &pin_name)
-                .ok_or_else(|| anyhow::anyhow!(
-                    "pin `{}` is not observable on board {} (Arduino: any D0-D13/A0-A5; STM32/gd32: only the D13 LED)",
-                    pin_name, spec.board_id
-                ))?;
-            wait_toggle(&mut sim, &bridge_key, w)
-        }
-        AssertMode::SerialContains { needle, within: w } => {
-            wait_serial(&mut sim, &needle, w)
-        }
-    };
+    let result = evaluate(&mut sim, spec, mode)?;
 
     sim.stop();
 
@@ -123,20 +96,64 @@ pub fn cmd_assert(
 }
 
 #[derive(Debug, PartialEq, Eq)]
-enum AssertResult { Pass, Fail, Timeout }
+pub(crate) enum AssertResult { Pass, Fail, Timeout }
+
+impl AssertResult {
+    pub(crate) fn as_str(&self) -> &'static str {
+        match self {
+            AssertResult::Pass => "PASS",
+            AssertResult::Fail => "FAIL",
+            AssertResult::Timeout => "TIMEOUT",
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum PinLevel { High, Low }
+pub(crate) enum PinLevel { High, Low }
 
 #[derive(Debug)]
-enum AssertMode {
+pub(crate) enum AssertMode {
     PinEq { pin_name: String, expected: PinLevel, after_d: Duration },
     PinToggles { pin_name: String, within: Duration },
     SerialContains { needle: String, within: Duration },
 }
 
+/// 对一个**已在运行**的仿真求值一条断言。CLI(`cmd_assert`,自己 spawn sim)
+/// 与 MCP(`assert` tool,复用 session 里的 sim)共用同一套判定逻辑。
+/// 引脚不可观测等前置错误 → `Err`(命令级错误);判定结果 → `Ok(AssertResult)`。
+pub(crate) fn evaluate(
+    sim: &mut crate::sim::RunningSim,
+    spec: &BoardSpec,
+    mode: AssertMode,
+) -> Result<AssertResult> {
+    let not_observable = |pin_name: &str| {
+        anyhow::anyhow!(
+            "pin `{}` is not observable on board {} (Arduino: any D0-D13/A0-A5; STM32/gd32: only the D13 LED)",
+            pin_name, spec.board_id
+        )
+    };
+    Ok(match mode {
+        AssertMode::PinEq { pin_name, expected, after_d } => {
+            let bridge_key = bridge_key_for(spec, &pin_name).ok_or_else(|| not_observable(&pin_name))?;
+            // 等 after_d，然后读一次 pin 状态做相等判断
+            std::thread::sleep(after_d);
+            let level = read_pin(sim, &bridge_key);
+            match (level, expected) {
+                (Some(true), PinLevel::High) | (Some(false), PinLevel::Low) => AssertResult::Pass,
+                (Some(_), _) => AssertResult::Fail,
+                (None, _) => AssertResult::Timeout,
+            }
+        }
+        AssertMode::PinToggles { pin_name, within: w } => {
+            let bridge_key = bridge_key_for(spec, &pin_name).ok_or_else(|| not_observable(&pin_name))?;
+            wait_toggle(sim, &bridge_key, w)
+        }
+        AssertMode::SerialContains { needle, within: w } => wait_serial(sim, &needle, w),
+    })
+}
+
 impl AssertMode {
-    fn resolve(
+    pub(crate) fn resolve(
         pin: &Option<String>,
         eq: &Option<String>,
         after: &Option<String>,

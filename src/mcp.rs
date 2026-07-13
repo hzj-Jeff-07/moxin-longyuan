@@ -183,6 +183,21 @@ fn tool_specs() -> Value {
                 },
                 "required": ["kind"]
             }
+        },
+        {
+            "name": "assert",
+            "description": "Assert a condition on the running sim, returns PASS/FAIL/TIMEOUT. Modes: pin+eq (level check after `after`), pin+toggles (edge within `within`), or serial_contains (line within `within`).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "pin": { "type": "string", "description": "pin name, e.g. D13 / A0 (Arduino: any GPIO; STM32/gd32: only D13)" },
+                    "eq": { "type": "string", "description": "expected level HIGH|LOW (with pin, no toggles)" },
+                    "after": { "type": "string", "description": "settle delay before pin+eq read, e.g. 1s / 250ms (default 1s)" },
+                    "toggles": { "type": "boolean", "description": "with pin: pass on any edge within `within`" },
+                    "serial_contains": { "type": "string", "description": "pass if a serial line contains this substring within `within`" },
+                    "within": { "type": "string", "description": "observation window for toggles/serial, e.g. 3s (default: toggles 3s, serial 2s)" }
+                }
+            }
         }
     ])
 }
@@ -244,6 +259,7 @@ fn call_tool(params: Option<&Value>, session: &mut Session) -> std::result::Resu
         "stop" => tool_stop(session),
         "sim_state" => tool_sim_state(session),
         "inject" => tool_inject(&args, session),
+        "assert" => tool_assert(&args, session),
         other => return Err(format!("unknown tool: {}", other)),
     };
 
@@ -440,6 +456,44 @@ fn tool_inject(args: &Value, session: &mut Session) -> std::result::Result<Strin
     }
 }
 
+/// 对 session 里**已在运行**的仿真求值一条断言,复用 CLI 的判定逻辑,
+/// 返回 `PASS` / `FAIL` / `TIMEOUT`。会阻塞至多 `within`/`after`(客户端等待响应)。
+fn tool_assert(args: &Value, session: &mut Session) -> std::result::Result<String, String> {
+    // 需要板 spec 做引脚可观测性判定;从当次 run 记下的项目根推导(spec 是 'static)。
+    let root = session
+        .root
+        .clone()
+        .ok_or_else(|| "no simulator running — call `run` first".to_string())?;
+    let project =
+        crate::project::Project::load(&root.join("moxin.toml")).map_err(|e| e.to_string())?;
+    let spec = crate::boards::board_from_str(&project.project.board)
+        .map_err(|e| e.to_string())?
+        .spec();
+
+    let sstr = |k: &str| {
+        args.get(k)
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+    };
+    let toggles = args.get("toggles").and_then(|v| v.as_bool()).unwrap_or(false);
+    let mode = crate::cmd_assert::AssertMode::resolve(
+        &sstr("pin"),
+        &sstr("eq"),
+        &sstr("after"),
+        toggles,
+        &sstr("within"),
+        &sstr("serial_contains"),
+    )
+    .map_err(|e| e.to_string())?;
+
+    let sim = session
+        .sim
+        .as_mut()
+        .ok_or_else(|| "no simulator running — call `run` first".to_string())?;
+    let result = crate::cmd_assert::evaluate(sim, spec, mode).map_err(|e| e.to_string())?;
+    Ok(result.as_str().to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -485,12 +539,14 @@ mod tests {
     }
 
     #[test]
-    fn tools_list_has_all_nine_tools() {
+    fn tools_list_has_all_ten_tools() {
         let resp = call("tools/list", json!({}));
         let tools = resp["result"]["tools"].as_array().unwrap();
         let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
-        assert_eq!(names.len(), 9);
-        for want in ["board_info", "read_state", "build", "run", "stop", "sim_state", "inject"] {
+        assert_eq!(names.len(), 10);
+        for want in [
+            "board_info", "read_state", "build", "run", "stop", "sim_state", "inject", "assert",
+        ] {
             assert!(names.contains(&want), "missing tool {want}");
         }
     }
@@ -580,6 +636,24 @@ mod tests {
         )
         .unwrap();
         assert_eq!(resp["result"]["isError"], true);
+    }
+
+    #[test]
+    fn assert_without_run_is_tool_error() {
+        let mut sess = Session::default();
+        let resp = handle_request(
+            &req(
+                "tools/call",
+                json!({ "name": "assert", "arguments": { "pin": "D13", "toggles": true } }),
+            ),
+            &mut sess,
+        )
+        .unwrap();
+        assert_eq!(resp["result"]["isError"], true);
+        assert!(resp["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("no simulator running"));
     }
 
     #[test]

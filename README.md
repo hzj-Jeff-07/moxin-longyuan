@@ -125,7 +125,8 @@ Ctrl-C 停止；bridge 自行退出时也会自动结束。
 ```
 
 暴露的 tool：`board_info` / `list_components` / `describe_project` / `read_state` /
-`build` / `run` / `stop` / `sim_state` / `inject`（adc·dist·env·ir·serial），
+`build` / `run` / `stop` / `sim_state` / `inject`（adc·dist·env·ir·serial）/
+`assert`（pin+eq·pin+toggles·serial_contains，返回 PASS/FAIL/TIMEOUT），
 以及 resource `moxin://state`。配置和用法见 `docs/mcp-client/`。
 
 同时 `run --output json` 会把**完整状态快照**落盘到 `build/.moxin-state.json`，
