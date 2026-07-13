@@ -143,9 +143,12 @@ moxin explain                        # 打印 LLM 对当前状态的分析
 
 - 默认**关闭**：不设 `MOXIN_LLM_API_KEY` 时 `explain` 只给启用指引、不发任何请求，
   其它命令行为与今天完全一致。
-- 配置（全走环境变量）：`MOXIN_LLM_URL`（默认 Anthropic Messages API）、`MOXIN_LLM_MODEL`
-  （默认 `claude-haiku-4-5`）、`MOXIN_LLM_KEY_HEADER`（默认 `x-api-key`，切 OpenAI 兼容端点
-  改 `Authorization`）。
+- 配置（全走环境变量）：
+  - `MOXIN_LLM_DIALECT`：`anthropic`（默认）或 `openai`。选 `openai` 自动切 OpenAI 兼容
+    Chat Completions 端点(OpenAI / OpenRouter / Azure / 本地 llama.cpp server 等):
+    默认 URL、默认模型、`Authorization: Bearer` 鉴权头、`choices[0].message.content` 解析全自动。
+  - `MOXIN_LLM_URL` / `MOXIN_LLM_MODEL`：覆盖端点 / 模型(不设则按方言取默认:Anthropic →
+    `api.anthropic.com` + `claude-haiku-4-5`;OpenAI → `api.openai.com` + `gpt-4o-mini`)。
 - 安全：密钥只从 env 读，经 `curl -K` 配置文件传递（**不进 argv**、0600、用后即删），
   不落盘长存、不入库、不进日志；prompt 里只有硬件状态，无源码外泄。
 - `moxin doctor` 会报 curl 是否可用、`MOXIN_LLM_API_KEY` 是否设置（只报是否设置，不打印值）。
