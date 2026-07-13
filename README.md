@@ -114,6 +114,20 @@ moxin run --output json | jq -c
 
 Ctrl-C 停止；bridge 自行退出时也会自动结束。
 
+## MCP server（给 AI Agent 直接调用）
+
+`moxin mcp` 启动一个 MCP（Model Context Protocol）server，走 stdio JSON-RPC 2.0。
+支持 MCP 的 AI 客户端（Claude Desktop / Cursor 等）可以把 MoXin 当**工具**直接调用——
+编译、跑仿真、注入激励、读全外设状态，无需了解命令行细节。
+
+```json
+{ "mcpServers": { "moxin": { "command": "/path/to/moxin", "args": ["mcp"] } } }
+```
+
+暴露的 tool：`board_info` / `list_components` / `describe_project` / `read_state` /
+`build` / `run` / `stop` / `sim_state` / `inject`（adc·dist·env·ir·serial），
+以及 resource `moxin://state`。配置和用法见 `docs/mcp-client/`。
+
 同时 `run --output json` 会把**完整状态快照**落盘到 `build/.moxin-state.json`，
 供 `moxin status` 和 AI Agent 按需读取。快照含全部外设的当前状态，而不只是 GPIO：
 
