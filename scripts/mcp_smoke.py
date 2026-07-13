@@ -92,8 +92,14 @@ def main() -> int:
             print(f"expected adc[0]=800, got {got} (state adc={state.get('adc')})", file=sys.stderr)
             return 1
 
+        # assert tool:对同一个运行中的仿真做串口断言(A0= 行必然打印)
+        err, text = tool("assert", {"serial_contains": "A0=", "within": "5s"})
+        if err or text.strip() != "PASS":
+            print(f"assert tool failed: isError={err} verdict={text!r}", file=sys.stderr)
+            return 1
+
         tool("stop", {})
-        print("mcp e2e ok: build → run → inject adc=800 → sim_state confirms")
+        print("mcp e2e ok: build → run → inject adc=800 → sim_state confirms → assert PASS")
         return 0
     finally:
         try:
