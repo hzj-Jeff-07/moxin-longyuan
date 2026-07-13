@@ -405,6 +405,17 @@ fn tool_sim_state(session: &mut Session) -> std::result::Result<String, String> 
     Ok(serde_json::to_string_pretty(&s.to_json()).unwrap_or_default())
 }
 
+/// ADC 通道显式校验:ATmega328P 有 8 个 ADC 通道(0..=7)。
+/// 不像 value/cm 那样静默截断——通道传错(如 256 `as u8` wrap 成 0)会静默注入到
+/// 错误通道,是 bug 不是"够近就行",必须报错让 AI 改正。
+fn adc_channel(raw: i64) -> std::result::Result<u8, String> {
+    if (0..=7).contains(&raw) {
+        Ok(raw as u8)
+    } else {
+        Err(format!("adc `channel` must be 0..=7 (got {})", raw))
+    }
+}
+
 fn tool_inject(args: &Value, session: &mut Session) -> std::result::Result<String, String> {
     let sim = session
         .sim
@@ -417,7 +428,7 @@ fn tool_inject(args: &Value, session: &mut Session) -> std::result::Result<Strin
     let int = |k: &str| args.get(k).and_then(|v| v.as_i64());
     match kind {
         "adc" => {
-            let ch = int("channel").ok_or("adc requires `channel`")? as u8;
+            let ch = adc_channel(int("channel").ok_or("adc requires `channel`")?)?;
             let v = int("value").ok_or("adc requires `value`")?.clamp(0, 1023) as u16;
             sim.set_adc(ch, v).map_err(|e| e.to_string())?;
             Ok(format!("adc ch{} = {}", ch, v))
@@ -636,6 +647,16 @@ mod tests {
         )
         .unwrap();
         assert_eq!(resp["result"]["isError"], true);
+    }
+
+    #[test]
+    fn adc_channel_validates_range() {
+        assert_eq!(adc_channel(0), Ok(0));
+        assert_eq!(adc_channel(7), Ok(7));
+        // 越界不静默 wrap:256 as u8 会变 0,必须报错而不是注入到通道 0
+        assert!(adc_channel(8).is_err());
+        assert!(adc_channel(256).is_err());
+        assert!(adc_channel(-1).is_err());
     }
 
     #[test]
