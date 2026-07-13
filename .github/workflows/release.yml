@@ -166,8 +166,19 @@ jobs:
           chmod +x fakebin/curl
           echo '{"ready":true,"mcu":"atmega328p","pin_states":{"B:5":1}}' > build/.moxin-state.json
           OUT=$(PATH="$PWD/fakebin:$PATH" MOXIN_LLM_API_KEY=sk-fake ../../target/release/moxin explain)
-          echo "explain output: $OUT"
-          echo "$OUT" | grep -q "no anomalies" || { echo "explain shell-out failed"; exit 1; }
+          echo "anthropic explain output: $OUT"
+          echo "$OUT" | grep -q "no anomalies" || { echo "anthropic explain shell-out failed"; exit 1; }
+          # OpenAI 兼容方言:fake curl 回 OpenAI choices[0].message.content 形态
+          cat > fakebin/curl <<'SH2'
+          #!/bin/bash
+          if [ "$1" = "--version" ]; then echo "curl 8.0.0 (fake)"; exit 0; fi
+          cat >/dev/null
+          printf '%s' '{"choices":[{"message":{"role":"assistant","content":"openai path ok."}}]}'
+          SH2
+          chmod +x fakebin/curl
+          OUT2=$(PATH="$PWD/fakebin:$PATH" MOXIN_LLM_DIALECT=openai MOXIN_LLM_API_KEY=sk-fake ../../target/release/moxin explain)
+          echo "openai explain output: $OUT2"
+          echo "$OUT2" | grep -q "openai path ok" || { echo "openai explain shell-out failed"; exit 1; }
           # 未设 key 时必须默认关闭(不发请求,给指引,exit 0)
           env -u MOXIN_LLM_API_KEY ../../target/release/moxin explain | grep -q "未启用"
 

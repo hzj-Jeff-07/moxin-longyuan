@@ -51,6 +51,9 @@
   实时/落盘两路共用。v3.3.0 补 M2:TUI 里 `Ctrl+E` 触发实时 LLM 解读,后台 worker 线程跑
   curl + `Arc<Mutex<LlmPanel>>` 缓存(Disabled/Idle/Pending/Ready/Error 状态机),渲染每帧读、
   **非阻塞**,失败降级。至此 AI Inspector 三里程碑(M1+M2+M3)全部完成。
+  v3.4.0 加多方言:`MOXIN_LLM_DIALECT=openai` 切 OpenAI 兼容端点(`Dialect` enum 驱动默认
+  URL/模型 + `Authorization: Bearer` + `choices[0].message.content` 解析;请求体两家一致);
+  去掉 `MOXIN_LLM_KEY_HEADER` 换成方言开关,`explain`/`Ctrl+E` 共用,零新依赖。
   **手写 JSON-RPC,不引 SDK/新 crate**;run 必须 json_out=false(仿真事件不能污染
   MCP 的 stdout JSON-RPC 通道);剩 tag v3.0.0(需用户本地推)
 - 不改 `bridge/*.c`,除非用户明确同意(phase-2-full RFC 已默认同意 ADC/stdin 通道改动,动手前仍再确认一次)
